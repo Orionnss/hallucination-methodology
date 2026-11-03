@@ -38,12 +38,24 @@ class ModelCfg(_Strict):
     quantization: Literal["none", "bnb4"] = "none"  # bnb4 = bitsandbytes 4-bit NF4, bf16 compute (D42)
 
 
+class ThinkingCfg(_Strict):
+    """Two-phase judging for reasoning models (DECISIONS.md D51): free greedy reasoning until
+    `end_marker` or `max_tokens`, then the constrained label. On overrun, `close` is appended."""
+
+    enabled: bool = False
+    max_tokens: int = 512
+    end_marker: str = "</think>"  # must be a single token
+    close: str = "\n</think>\n\n"  # appended when the budget runs out (or EOS comes first)
+    after_marker: str = "\n\n"  # appended after a natural end_marker
+
+
 class JudgeCfg(ModelCfg):
     kind: Literal["hf", "mock"] = "hf"
     # D43: e.g. {"enable_thinking": false} for Qwen3.5; text appended after the
     # generation prompt, e.g. an empty think block for DeepSeek-R1-Distill.
     chat_template_kwargs: dict[str, Any] = Field(default_factory=dict)
     assistant_prefix: str = ""
+    thinking: ThinkingCfg = Field(default_factory=ThinkingCfg)
     mock: dict[str, Any] = Field(default_factory=dict)  # only for kind="mock" (tests)
 
 

@@ -11,6 +11,7 @@ from loguru import logger
 from hbench.config import ExperimentCfg
 from hbench.cv import outer_folds, run_outer_fold
 from hbench.io import write_parquet_atomic
+from hbench.keys import stable_hash
 from hbench.paths import RunPaths
 from hbench.pool.registry import get_detector, resolve_grid
 from hbench.pool.writer import read_features
@@ -23,22 +24,33 @@ def cell_labels(paths: RunPaths, g: str, d: str) -> pd.DataFrame:
     return lab.sort_values("sample_id").reset_index(drop=True)
 
 
+def labels_hash(lab: pd.DataFrame) -> str:
+    return stable_hash([[s, int(y)] for s, y in zip(lab["sample_id"], lab["y"])])
+
+
 def cell_folds(cfg: ExperimentCfg, paths: RunPaths, g: str, d: str, lab: pd.DataFrame) -> pd.DataFrame:
-    """Outer folds of the cell, made once and shared by all detectors (paired design)."""
+    """Outer folds of the cell, made once per label set and shared by all detectors (paired design).
+    If the labels change (e.g. a judge is re-run), the folds are rebuilt (D53)."""
     p = paths.folds(g, d)
+    lh = labels_hash(lab)
     if p.exists():
         f = pd.read_parquet(p)
-        if set(f["sample_id"]) != set(lab["sample_id"]):
-            raise RuntimeError(f"{p}: the labelled sample set changed since the folds were made")
-        return f
+        if "labels_hash" in f and (f["labels_hash"] == lh).all():
+            return f
+        logger.info(f"evaluate: labels of {g}/{d} changed; rebuilding the outer folds")
     y = lab["y"].astype(int).to_numpy()
     rows = []
     for b in range(cfg.cv.repeats):
         fold = outer_folds(y, cfg.cv.outer_folds, cfg.seed, b, where=f"{g}/{d} repeat {b}")
-        rows.append(pd.DataFrame({"sample_id": lab["sample_id"], "repeat": b, "fold": fold}))
+        rows.append(pd.DataFrame({"sample_id": lab["sample_id"], "repeat": b, "fold": fold, "labels_hash": lh}))
     f = pd.concat(rows, ignore_index=True)
     write_parquet_atomic(f, p)
     return f
+
+
+def _metrics_current(path, lh: str) -> bool:
+    m = pd.read_parquet(path)
+    return "labels_hash" in m and bool((m["labels_hash"] == lh).all())
 
 
 def run(cfg: ExperimentCfg, detectors: list[str] | None = None) -> None:
@@ -48,11 +60,12 @@ def run(cfg: ExperimentCfg, detectors: list[str] | None = None) -> None:
             lab = cell_labels(paths, g.name, d.name)
             folds = cell_folds(cfg, paths, g.name, d.name, lab)
             y = lab["y"].astype(int).to_numpy()
+            lh = labels_hash(lab)
             for det in cfg.detectors:
                 if detectors and det.name not in detectors:
                     continue
                 mpath = paths.metrics(det.name, g.name, d.name)
-                if mpath.exists():
+                if mpath.exists() and _metrics_current(mpath, lh):
                     logger.info(f"evaluate: {det.name} on {g.name}/{d.name} already done")
                     continue
                 spec = get_detector(det.name)
@@ -86,6 +99,7 @@ def run(cfg: ExperimentCfg, detectors: list[str] | None = None) -> None:
                                 "fold": f,
                                 "n_train": len(tr),
                                 "n_test": len(te),
+                                "labels_hash": lh,
                                 "params": json.dumps(r.params),
                                 "inner_auroc": r.inner_auroc,
                                 "tau": r.tau,

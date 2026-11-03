@@ -15,7 +15,9 @@ from hbench.judging.aggregate import (
     map_label,
     mean_pairwise_cohen_kappa,
 )
+from hbench.judging.judges import judge_prompt_hash
 from hbench.judging.labels import PARSE_ERROR
+from hbench.stages.judge import vote_key_suffix
 from hbench.paths import RunPaths
 
 
@@ -68,6 +70,8 @@ def aggregate_cell(
 def run(cfg: ExperimentCfg) -> pd.DataFrame:
     paths = RunPaths(cfg)
     judges = [j.name for j in cfg.judges]
+    jh = judge_prompt_hash(cfg)
+    suffix = {j.name: vote_key_suffix(cfg, j, jh) for j in cfg.judges}
     all_stats = []
     for g in cfg.generators:
         for d in cfg.datasets:
@@ -75,8 +79,9 @@ def run(cfg: ExperimentCfg) -> pd.DataFrame:
             votes = pd.concat([PartTable(paths.votes(j, g.name, d.name)).read() for j in judges], ignore_index=True)
             if gens.empty or votes.empty:
                 raise RuntimeError(f"aggregate: missing generations or votes for {g.name}/{d.name}")
-            # Only the votes on the current generations count (a vote key also holds the judge prompt hash).
-            votes = votes[votes["gen_key"].isin(set(gens["key"]))]
+            # Only the votes on the current generations, with the current judge settings, count. Votes
+            # made with older settings stay on disk (resume never overwrites) but are ignored here.
+            votes = votes[votes["key"] == votes["gen_key"] + votes["judge"].map(suffix)]
             empty = set(gens.loc[gens["answer_n_tokens"] == 0, "key"])
             lab_df, stats = aggregate_cell(votes, judges, gens["key"].tolist(), empty)
             lab_df.insert(0, "generator", g.name)

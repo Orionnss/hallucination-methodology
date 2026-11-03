@@ -25,7 +25,8 @@ judges:
   - {name: qwen3.5-9b, hf_id: Qwen/Qwen3.5-9B, dtype: bfloat16, quantization: bnb4, batch_size: 16,
      chat_template_kwargs: {enable_thinking: false}}
   - {name: deepseek-r1-distill-qwen-7b, hf_id: deepseek-ai/DeepSeek-R1-Distill-Qwen-7B, dtype: bfloat16,
-     quantization: bnb4, batch_size: 16, assistant_prefix: "\n</think>\n\n"}  # the template already ends with "<think>\n"
+     quantization: bnb4, batch_size: 16,
+     thinking: {enabled: true, max_tokens: 512}}  # D51; the chat template already opens "<think>\n"
 
 prompt:
   template: "Answer the following question with a short answer. Do not explain.\nQuestion: {question}"

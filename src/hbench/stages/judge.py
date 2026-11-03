@@ -9,7 +9,7 @@ from loguru import logger
 
 from hbench.config import ExperimentCfg
 from hbench.io import PartTable
-from hbench.judging.judges import JudgeItem, judge_prompt_hash, make_judge
+from hbench.judging.judges import JudgeItem, JudgeOut, judge_prompt_hash, make_judge
 from hbench.judging.labels import PARSE_ERROR, parse_vote
 from hbench.keys import stable_hash
 from hbench.paths import RunPaths
@@ -20,18 +20,26 @@ from hbench.seeding import set_all_seeds
 CHUNK = 256  # items written per part file
 
 
-def vote_with_retry(judge, items: list[JudgeItem], retries: int) -> list[tuple[str, str, int]]:
-    """Return (vote, last raw output, attempts) for each item."""
-    raws = judge.judge(items, attempt=0)
-    result = [(parse_vote(r), r, 1) for r in raws]
+def vote_key_suffix(cfg: ExperimentCfg, jc, judge_hash: str) -> str:
+    """The vote key = generation key + this suffix: the judge name, the judge prompt and the judge's
+    own settings (model, quantization, prefix, thinking)."""
+    # Only non-default fields are hashed, so adding a config field with a default keeps old keys valid.
+    jkey = stable_hash([judge_hash, jc.model_dump(mode="json", exclude={"batch_size", "device"}, exclude_defaults=True)])
+    return f"|{jc.name}:{jkey}"
+
+
+def vote_with_retry(judge, items: list[JudgeItem], retries: int) -> list[tuple[str, JudgeOut, int]]:
+    """Return (vote, last judge output, attempts) for each item."""
+    outs = judge.judge(items, attempt=0)
+    result = [(parse_vote(o.raw), o, 1) for o in outs]
     for attempt in range(1, retries + 1):
         bad = [i for i, (v, _, _) in enumerate(result) if v is None]
         if not bad:
             break
         again = judge.judge([items[i] for i in bad], attempt=attempt)
-        for i, r in zip(bad, again):
-            result[i] = (parse_vote(r), r, attempt + 1)
-    return [(v if v is not None else PARSE_ERROR, r, a) for v, r, a in result]
+        for i, o in zip(bad, again):
+            result[i] = (parse_vote(o.raw), o, attempt + 1)
+    return [(v if v is not None else PARSE_ERROR, o, a) for v, o, a in result]
 
 
 def run(cfg: ExperimentCfg, judges: list[str] | None = None, generators: list[str] | None = None, datasets: list[str] | None = None) -> None:
@@ -52,9 +60,7 @@ def run(cfg: ExperimentCfg, judges: list[str] | None = None, generators: list[st
                     raise RuntimeError(f"judge: no generations for {g.name}/{d.name}; run `generate` first")
                 samples = pd.read_parquet(paths.samples(d.name))[["sample_id", "question", "expected_answer"]]
                 gens = gens.merge(samples, on="sample_id", how="left", validate="one_to_one")
-                # The vote key holds the judge prompt and the judge's own settings (model, quantization, prefix).
-                jkey = stable_hash([jh, jc.model_dump(mode="json", exclude={"batch_size", "device"})])
-                gens["vote_key"] = gens["key"] + f"|{jc.name}:{jkey}"
+                gens["vote_key"] = gens["key"] + vote_key_suffix(cfg, jc, jh)
                 table = PartTable(paths.votes(jc.name, g.name, d.name))
                 todo = gens[~gens["vote_key"].isin(table.done_keys())]
                 if todo.empty:
@@ -81,7 +87,10 @@ def run(cfg: ExperimentCfg, judges: list[str] | None = None, generators: list[st
                                 "generator": g.name,
                                 "judge": jc.name,
                                 "vote": [v for v, _, _ in votes],
-                                "raw_output": [r for _, r, _ in votes],
+                                "raw_output": [o.raw for _, o, _ in votes],
+                                "raw_reasoning": [o.reasoning for _, o, _ in votes],
+                                "forced_close": [o.forced_close for _, o, _ in votes],
+                                "reasoning_tokens": [o.reasoning_tokens for _, o, _ in votes],
                                 "attempts": [a for _, _, a in votes],
                             }
                         )

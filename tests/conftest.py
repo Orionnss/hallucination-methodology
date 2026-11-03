@@ -23,10 +23,13 @@ def tiny_models(tmp_path_factory) -> dict[str, str]:
 
     base = tmp_path_factory.mktemp("models")
     out = {}
-    for name in ("gen", "judge"):
+    for name in ("gen", "judge", "thinker"):
         tok = AutoTokenizer.from_pretrained(TINY)
         tok.chat_template = CHAT_TEMPLATE
         model = AutoModelForCausalLM.from_pretrained(TINY)
+        if name == "thinker":  # a judge with a single-token think marker
+            tok.add_tokens(["</think>"], special_tokens=True)
+            model.resize_token_embeddings(len(tok))
         d = base / name
         tok.save_pretrained(d)
         model.save_pretrained(d)

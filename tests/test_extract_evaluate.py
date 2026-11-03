@@ -85,3 +85,21 @@ def test_evaluate_paired_folds_and_resume(make_cfg):
     mtime = paths.metrics("mean_hidden_probe", "tiny0", "toy").stat().st_mtime_ns
     evaluate.run(cfg)
     assert paths.metrics("mean_hidden_probe", "tiny0", "toy").stat().st_mtime_ns == mtime
+
+
+def test_evaluate_reruns_when_labels_change(make_cfg):
+    cfg = _cfg(make_cfg, n=100)
+    _upstream(cfg)
+    extract.run(cfg)
+    evaluate.run(cfg, detectors=["mean_hidden_probe"])
+    paths = RunPaths(cfg)
+    m0 = pd.read_parquet(paths.metrics("mean_hidden_probe", "tiny0", "toy"))
+    # Re-judge with other settings → other labels → folds and metrics are rebuilt.
+    cfg2 = _cfg(make_cfg, n=100) .model_copy()
+    cfg2.judges[0].mock = {"seed": 6, "flip_prob": 0.5}
+    judge.run(cfg2)
+    aggregate.run(cfg2)
+    evaluate.run(cfg2, detectors=["mean_hidden_probe"])
+    m1 = pd.read_parquet(paths.metrics("mean_hidden_probe", "tiny0", "toy"))
+    assert m1["labels_hash"].iloc[0] != m0["labels_hash"].iloc[0]
+    assert (pd.read_parquet(paths.folds("tiny0", "toy"))["labels_hash"] == m1["labels_hash"].iloc[0]).all()

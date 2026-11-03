@@ -54,7 +54,9 @@ def generate_batch(
     logits_processor: LogitsProcessorList | None = None,
     num_return_sequences: int = 1,
     generator_seed: int | None = None,
+    stop_ids: set[int] | None = None,
 ) -> list[list[GenOut]]:
+    """`stop_ids`: extra token IDs that end a sequence like EOS (finish_reason "eos")."""
     tok = lm.tokenizer
     pad = tok.pad_token_id
     width = max(len(p) for p in prompts)
@@ -63,7 +65,8 @@ def generate_batch(
     for i, p in enumerate(prompts):  # left padding
         input_ids[i, width - len(p) :] = torch.tensor(p)
         attn[i, width - len(p) :] = 1
-    kwargs = dict(max_new_tokens=decoding.max_new_tokens, do_sample=decoding.do_sample, pad_token_id=pad)
+    eos = lm.eos_ids | (stop_ids or set())
+    kwargs = dict(max_new_tokens=decoding.max_new_tokens, do_sample=decoding.do_sample, pad_token_id=pad, eos_token_id=sorted(eos))
     if decoding.do_sample:
         kwargs.update(temperature=decoding.temperature, top_p=decoding.top_p)
     else:
@@ -79,7 +82,6 @@ def generate_batch(
             **kwargs,
         )
     gen = out[:, width:].cpu().tolist()
-    eos = lm.eos_ids
     results: list[list[GenOut]] = []
     for i in range(len(prompts)):
         row = []
