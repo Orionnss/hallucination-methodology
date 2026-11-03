@@ -1,0 +1,38 @@
+run_id: example_001
+seed: 0
+n: 200
+output_dir: runs
+
+datasets:
+  - name: triviaqa
+    loader: hf
+    path: mandarjoshi/trivia_qa
+    subset: rc.nocontext
+    split: validation
+    id_field: question_id
+    question_field: question
+    answer_field: answer.aliases
+
+generators:
+  - {name: <generator>, hf_id: <org/model>, dtype: bfloat16, batch_size: 32}
+
+judges:                       # must be disjoint from generators
+  - {name: <judge-a>, hf_id: <org/model>, dtype: bfloat16, batch_size: 32}
+  - {name: <judge-b>, hf_id: <org/model>, dtype: bfloat16, batch_size: 32}
+  - {name: <judge-c>, hf_id: <org/model>, dtype: bfloat16, batch_size: 32}
+
+prompt:
+  template: "Answer the following question with a short answer. Do not explain.\nQuestion: {question}"
+  system: null
+  use_chat_template: true
+
+decoding: {do_sample: false, max_new_tokens: 64}
+
+extra_samples: {num_samples: 0}
+
+judging:
+  prompt_template_file: judge_prompt.txt
+  retries: 1
+  max_new_tokens: 16
+
+cv: {outer_folds: 5, inner_folds: 3, repeats: 1, max_threshold_candidates: 200}

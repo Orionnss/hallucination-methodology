@@ -1,0 +1,5 @@
+You are grading an answer to a question.
+Question: {question}
+Acceptable answers (any one is enough): {answers}
+Model answer: {answer}
+Output CORRECT if the model answer matches one of the acceptable answers in meaning, INCORRECT if it gives a different or wrong answer, REFUSAL if it declines or says it does not know. Respond in JSON.

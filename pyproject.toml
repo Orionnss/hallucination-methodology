@@ -1,0 +1,48 @@
+[project]
+name = "hbench"
+version = "0.1.0"
+description = "Benchmark pipeline for published white-box hallucination detectors"
+requires-python = ">=3.12,<3.13"
+
+# Versions shared with lapeigvals are pinned to its pyproject (commit 74f885c, see DECISIONS.md D17).
+dependencies = [
+  "torch==2.6.0",
+  "transformers==4.47.0",
+  "accelerate==1.1.1",
+  "datasets==3.1.0",
+  "scikit-learn==1.6.1",
+  "pandas==2.2.3",
+  "pydantic==2.11.3",
+  "loguru==0.7.2",
+  "typer>=0.12.5",
+  "tqdm>=4.66.4",
+  "pyarrow>=17",
+  "h5py>=3.11",
+  "pyyaml>=6",
+  "scipy>=1.13",
+]
+
+[project.scripts]
+hbench = "hbench.cli:app"
+
+[dependency-groups]
+dev = ["pytest==8.3.4"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hbench"]
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu124", marker = "sys_platform == 'linux'" }]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning", "ignore::FutureWarning"]
