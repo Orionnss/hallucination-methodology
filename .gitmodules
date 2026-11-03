@@ -1,0 +1,3 @@
+[submodule "third_party/lapeigvals"]
+	path = third_party/lapeigvals
+	url = https://github.com/graphml-lab-pwr/lapeigvals.git

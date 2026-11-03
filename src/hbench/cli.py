@@ -56,5 +56,23 @@ def aggregate(config: str = ConfigOpt) -> None:
     print(st.run(cfg).to_string())
 
 
+@app.command()
+def extract(config: str = ConfigOpt, generator: Optional[list[str]] = NamesOpt, dataset: Optional[list[str]] = NamesOpt) -> None:
+    from hbench.stages import extract as st
+
+    cfg = load_config(config)
+    save_run_provenance(cfg, "extract")
+    st.run(cfg, generators=generator, datasets=dataset)
+
+
+@app.command()
+def evaluate(config: str = ConfigOpt, detector: Optional[list[str]] = NamesOpt) -> None:
+    from hbench.stages import evaluate as st
+
+    cfg = load_config(config)
+    save_run_provenance(cfg, "evaluate")
+    st.run(cfg, detectors=detector)
+
+
 if __name__ == "__main__":
     app()

@@ -69,6 +69,15 @@ class CVCfg(_Strict):
     max_threshold_candidates: int = 200
 
 
+class ExtractionCfg(_Strict):
+    dtype: Literal["float32", "bfloat16", "float16"] | None = None  # None → the generator's dtype
+    batch_size: int = 8
+    shard_size: int = 1000  # samples per feature shard file (bounds RAM, unit of resume)
+    matmul_precision: Literal["highest", "high", "medium"] = "highest"  # DECISIONS.md D29
+    feature_dtype: Literal["float32"] = "float32"  # DECISIONS.md D32
+    device: str = "auto"
+
+
 class DetectorCfg(_Strict):
     name: str
     params: dict[str, Any] = Field(default_factory=dict)
@@ -87,6 +96,7 @@ class ExperimentCfg(_Strict):
     decoding: DecodingCfg = Field(default_factory=DecodingCfg)
     extra_samples: ExtraSamplesCfg = Field(default_factory=ExtraSamplesCfg)
     judging: JudgingCfg
+    extraction: ExtractionCfg = Field(default_factory=ExtractionCfg)
     cv: CVCfg = Field(default_factory=CVCfg)
     detectors: list[DetectorCfg] = Field(default_factory=list)
 
@@ -104,6 +114,9 @@ class ExperimentCfg(_Strict):
                 continue
             if (j.hf_id, j.revision) in gen_ids or j.hf_id in gen_hf:
                 raise ValueError(f"judge {j.name!r} ({j.hf_id}) is also a generator: judges ∩ generators must be empty")
+        det = [d.name for d in self.detectors]
+        if len(set(det)) != len(det):
+            raise ValueError(f"duplicate detector names: {det}")
         if self.judges and {j.name for j in self.judges} & {g.name for g in self.generators}:
             raise ValueError("a judge and a generator share a name")
         return self

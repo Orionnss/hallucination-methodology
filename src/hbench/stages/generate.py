@@ -94,6 +94,7 @@ def _generate_main(cfg, lm, gname, dname, todo, table, ph, dh, bs) -> None:
                     "prompt_text": ptext,
                     "prompt_ids": pids,
                     "answer_ids": o.answer_ids,
+                    "answer_n_tokens": len(strip_eos(o.answer_ids, eos)),  # answer span length, EOS excluded (D8)
                     "answer_text": lm.tokenizer.decode(strip_eos(o.answer_ids, eos), skip_special_tokens=True).strip(),
                     "finish_reason": o.finish_reason,
                 }

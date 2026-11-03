@@ -19,7 +19,9 @@ from hbench.judging.labels import PARSE_ERROR
 from hbench.paths import RunPaths
 
 
-def aggregate_cell(votes: pd.DataFrame, judges: list[str], gen_keys: list[str]) -> tuple[pd.DataFrame, dict]:
+def aggregate_cell(
+    votes: pd.DataFrame, judges: list[str], gen_keys: list[str], empty_keys: set[str] | None = None
+) -> tuple[pd.DataFrame, dict]:
     """votes: rows (gen_key, sample_id, judge, vote). Every judge must have voted on every generated sample."""
     wide = votes.pivot(index="gen_key", columns="judge", values="vote")
     missing_j = [j for j in judges if j not in wide.columns]
@@ -37,13 +39,18 @@ def aggregate_cell(votes: pd.DataFrame, judges: list[str], gen_keys: list[str]) 
         rows.append({"gen_key": k, "sample_id": sid[k], "label": lab, "y": y, "status": status, "votes": vs})
     lab_df = pd.DataFrame(rows)
     lab_df["y"] = lab_df["y"].astype("Int8")
+    # An answer that is only EOS has no answer span: excluded for all detectors (DECISIONS.md D30).
+    lab_df["empty_answer"] = lab_df["gen_key"].isin(empty_keys or set())
     n = len(lab_df)
     st = lab_df["status"].value_counts()
-    kept = lab_df[lab_df["status"] == KEPT]
+    labelled = lab_df[lab_df["status"] == KEPT]
+    kept = labelled[~labelled["empty_answer"]]
     kappa, n_pairs = mean_pairwise_cohen_kappa({j: wide[j].tolist() for j in judges})
     stats = {
         "n": n,
         "n_kept": len(kept),
+        "empty_answer_count": int(lab_df["empty_answer"].sum()),
+        "empty_answer_kept_label": int(labelled["empty_answer"].sum()),
         "refusal_rate": st.get(DISCARD_REFUSAL, 0) / n,
         "tie_rate": st.get(DISCARD_TIE, 0) / n,
         "no_valid_vote_rate": st.get(DISCARD_NO_VOTE, 0) / n,
@@ -70,7 +77,8 @@ def run(cfg: ExperimentCfg) -> pd.DataFrame:
                 raise RuntimeError(f"aggregate: missing generations or votes for {g.name}/{d.name}")
             # Only the votes on the current generations count (a vote key also holds the judge prompt hash).
             votes = votes[votes["gen_key"].isin(set(gens["key"]))]
-            lab_df, stats = aggregate_cell(votes, judges, gens["key"].tolist())
+            empty = set(gens.loc[gens["answer_n_tokens"] == 0, "key"])
+            lab_df, stats = aggregate_cell(votes, judges, gens["key"].tolist(), empty)
             lab_df.insert(0, "generator", g.name)
             lab_df.insert(0, "dataset", d.name)
             write_parquet_atomic(lab_df, paths.labels(g.name, d.name))

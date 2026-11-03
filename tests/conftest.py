@@ -34,7 +34,7 @@ def tiny_models(tmp_path_factory) -> dict[str, str]:
     return out
 
 
-def make_dataset(path: Path, n_rows: int = 30) -> Path:
+def make_dataset(path: Path, n_rows: int = 120) -> Path:
     rows = [
         {"id": f"q{i}", "question": f"What is {i} plus {i}?", "answers": json.dumps([str(2 * i), f"number {2 * i}"])}
         for i in range(n_rows)

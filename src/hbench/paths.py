@@ -28,3 +28,15 @@ class RunPaths:
 
     def label_stats(self) -> Path:
         return self.root / "labels" / "labelling_stats.parquet"
+
+    def features(self, generator: str, dataset: str) -> Path:
+        return self.root / "features" / generator / dataset
+
+    def folds(self, generator: str, dataset: str) -> Path:
+        return self.root / "folds" / generator / f"{dataset}.parquet"
+
+    def metrics(self, detector: str, generator: str, dataset: str) -> Path:
+        return self.root / "metrics" / detector / generator / f"{dataset}.parquet"
+
+    def predictions(self, detector: str, generator: str, dataset: str) -> Path:
+        return self.root / "predictions" / detector / generator / f"{dataset}.parquet"
