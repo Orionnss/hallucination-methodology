@@ -13,7 +13,7 @@ from hbench.config import ExperimentCfg
 from hbench.generation import build_prompt, generate_batch, strip_eos
 from hbench.io import PartTable
 from hbench.keys import stable_hash, unit_key
-from hbench.models import load_model
+from hbench.models import free_gpu, load_model
 from hbench.paths import RunPaths
 from hbench.provenance import record_model_revision
 from hbench.seeding import set_all_seeds
@@ -66,6 +66,7 @@ def run(cfg: ExperimentCfg, generators: list[str] | None = None, datasets: list[
             if n_extra:
                 _generate_extra(cfg, lm, g.name, d.name, extra_todo, extra_table, ph, eh, g.batch_size)
         del lm
+        free_gpu()
 
 
 def _prompts(cfg: ExperimentCfg, lm, questions: list[str]) -> list[tuple[str, list[int]]]:

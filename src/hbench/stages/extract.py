@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 from hbench.config import ExperimentCfg
 from hbench.io import PartTable
-from hbench.models import load_model
+from hbench.models import free_gpu, load_model
 from hbench.paths import RunPaths
 from hbench.pool.adapter import to_generate_output
 from hbench.pool.batching import build_pass_batch, to_device
@@ -95,8 +95,7 @@ def run(cfg: ExperimentCfg, generators: list[str] | None = None, datasets: list[
             )
             logger.info(f"extract: {g.name}/{d.name}: {len(todo)} shard(s) written")
         del lm
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        free_gpu()
 
 
 def _run_shard(lm, shard: pd.DataFrame, pool: PoolStorage, needs: Needs, bs: int, desc: str) -> None:

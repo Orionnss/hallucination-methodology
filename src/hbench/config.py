@@ -19,9 +19,13 @@ class DatasetCfg(_Strict):
     path: str
     subset: str | None = None
     split: str | None = None
+    revision: str | None = None  # HF dataset commit (loader "hf"); for hf:// file paths put "@<rev>" in the path
     id_field: str | None = None  # None → row index is the sample ID
     question_field: str = "question"
-    answer_field: str = "expected_answer"  # dotted path allowed, e.g. "answer.aliases"
+    answer_field: str | list[str] = "expected_answer"  # dotted path(s), e.g. "answer.aliases"; a list is concatenated
+    answer_split: str | None = None  # split string answers on this separator, e.g. "; " (TruthfulQA, D46)
+    dedupe_ids: bool = False  # drop duplicate IDs after checking the rows agree (D44)
+    drop_empty_answers: bool = False  # drop rows without any acceptable answer (SQuAD v2 unanswerable, D45)
 
 
 class ModelCfg(_Strict):
@@ -31,10 +35,15 @@ class ModelCfg(_Strict):
     dtype: Literal["float32", "bfloat16", "float16"] = "bfloat16"
     batch_size: int = 16
     device: str = "auto"  # "auto" → cuda if available, else cpu
+    quantization: Literal["none", "bnb4"] = "none"  # bnb4 = bitsandbytes 4-bit NF4, bf16 compute (D42)
 
 
 class JudgeCfg(ModelCfg):
     kind: Literal["hf", "mock"] = "hf"
+    # D43: e.g. {"enable_thinking": false} for Qwen3.5; text appended after the
+    # generation prompt, e.g. an empty think block for DeepSeek-R1-Distill.
+    chat_template_kwargs: dict[str, Any] = Field(default_factory=dict)
+    assistant_prefix: str = ""
     mock: dict[str, Any] = Field(default_factory=dict)  # only for kind="mock" (tests)
 
 

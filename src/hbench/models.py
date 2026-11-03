@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import torch
+import transformers
 from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel, PreTrainedTokenizerBase
 
 from hbench.config import ModelCfg
@@ -41,9 +42,36 @@ def load_model(cfg: ModelCfg, attn_implementation: str | None = None) -> LoadedM
     tok.padding_side = "left"
     if tok.pad_token_id is None:
         tok.pad_token = tok.eos_token
-    kwargs = {"torch_dtype": _DTYPES[cfg.dtype], "revision": cfg.revision}
+    dtype_kw = "dtype" if int(transformers.__version__.split(".")[0]) >= 5 else "torch_dtype"
+    kwargs = {dtype_kw: _DTYPES[cfg.dtype], "revision": cfg.revision}
     if attn_implementation:
         kwargs["attn_implementation"] = attn_implementation
-    model = AutoModelForCausalLM.from_pretrained(cfg.hf_id, **kwargs).to(device).eval()
+    if cfg.quantization == "bnb4":
+        from transformers import BitsAndBytesConfig
+
+        kwargs["quantization_config"] = BitsAndBytesConfig(
+            load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=torch.bfloat16
+        )
+        kwargs["device_map"] = {"": device.index or 0} if device.type == "cuda" else None
+    try:
+        model = AutoModelForCausalLM.from_pretrained(cfg.hf_id, **kwargs)
+    except ValueError:
+        # Multimodal checkpoints (Gemma-3, Qwen3.5) are registered as image-text-to-text; the text
+        # path is used only.
+        from transformers import AutoModelForImageTextToText
+
+        model = AutoModelForImageTextToText.from_pretrained(cfg.hf_id, **kwargs)
+    if cfg.quantization == "none":
+        model = model.to(device)
+    model = model.eval()
     commit = getattr(model.config, "_commit_hash", None) or cfg.revision
     return LoadedModel(model=model, tokenizer=tok, commit=commit, device=device)
+
+
+def free_gpu() -> None:
+    """Release a model's GPU memory after its last reference is dropped (HF models hold reference cycles)."""
+    import gc
+
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()

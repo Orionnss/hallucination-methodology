@@ -11,7 +11,9 @@ from hbench.config import ExperimentCfg
 from hbench.io import PartTable
 from hbench.judging.judges import JudgeItem, judge_prompt_hash, make_judge
 from hbench.judging.labels import PARSE_ERROR, parse_vote
+from hbench.keys import stable_hash
 from hbench.paths import RunPaths
+from hbench.models import free_gpu
 from hbench.provenance import record_model_revision
 from hbench.seeding import set_all_seeds
 
@@ -50,7 +52,9 @@ def run(cfg: ExperimentCfg, judges: list[str] | None = None, generators: list[st
                     raise RuntimeError(f"judge: no generations for {g.name}/{d.name}; run `generate` first")
                 samples = pd.read_parquet(paths.samples(d.name))[["sample_id", "question", "expected_answer"]]
                 gens = gens.merge(samples, on="sample_id", how="left", validate="one_to_one")
-                gens["vote_key"] = gens["key"] + f"|{jc.name}:{jh}"
+                # The vote key holds the judge prompt and the judge's own settings (model, quantization, prefix).
+                jkey = stable_hash([jh, jc.model_dump(mode="json", exclude={"batch_size", "device"})])
+                gens["vote_key"] = gens["key"] + f"|{jc.name}:{jkey}"
                 table = PartTable(paths.votes(jc.name, g.name, d.name))
                 todo = gens[~gens["vote_key"].isin(table.done_keys())]
                 if todo.empty:
@@ -84,4 +88,5 @@ def run(cfg: ExperimentCfg, judges: list[str] | None = None, generators: list[st
                     )
                 logger.info(f"judge: {jc.name} on {g.name}/{d.name}: {len(todo)} votes")
         del judge
+        free_gpu()
 

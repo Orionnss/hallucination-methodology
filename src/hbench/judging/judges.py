@@ -58,7 +58,10 @@ class HFJudge:
         bs = self.cfg.batch_size
         for s in range(0, len(items), bs):
             chunk = items[s : s + bs]
-            prompts = [build_prompt(self.lm, render_judge_prompt(self.template, it), None, True)[1] for it in chunk]
+            prompts = [
+                build_prompt(self.lm, render_judge_prompt(self.template, it), None, True, self.cfg.chat_template_kwargs, self.cfg.assistant_prefix)[1]
+                for it in chunk
+            ]
             proc = AllowedSequencesProcessor(self.seqs, self.eos_id, max(len(p) for p in prompts))
             gens = generate_batch(self.lm, prompts, self.decoding, logits_processor=LogitsProcessorList([proc]))
             out += [self.lm.tokenizer.decode(strip_eos(g.answer_ids, self.lm.eos_ids), skip_special_tokens=True) for [g] in gens]

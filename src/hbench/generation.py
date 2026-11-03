@@ -11,17 +11,32 @@ from hbench.config import DecodingCfg
 from hbench.models import LoadedModel
 
 
-def build_prompt(lm: LoadedModel, user_text: str, system: str | None, use_chat_template: bool) -> tuple[str, list[int]]:
+def build_prompt(
+    lm: LoadedModel,
+    user_text: str,
+    system: str | None,
+    use_chat_template: bool,
+    template_kwargs: dict | None = None,
+    assistant_prefix: str = "",
+) -> tuple[str, list[int]]:
     """Return (prompt_text, prompt_ids). With the chat template, the IDs come from the template
-    directly, so special tokens such as BOS are not added twice."""
+    directly, so special tokens such as BOS are not added twice. `assistant_prefix` is appended
+    after the generation prompt (judges only, D43)."""
     tok = lm.tokenizer
     if use_chat_template:
         if tok.chat_template is None:
             raise ValueError(f"{tok.name_or_path} has no chat template; set prompt.use_chat_template: false")
         msgs = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": user_text}]
-        text = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
-        ids = tok.apply_chat_template(msgs, tokenize=True, add_generation_prompt=True)
-        return text, list(ids)
+        kw = dict(add_generation_prompt=True, **(template_kwargs or {}))
+        text = tok.apply_chat_template(msgs, tokenize=False, **kw)
+        ids = tok.apply_chat_template(msgs, tokenize=True, **kw)
+        if hasattr(ids, "keys"):  # transformers 5 returns a BatchEncoding
+            ids = ids["input_ids"]
+        ids = list(ids)
+        if assistant_prefix:
+            text += assistant_prefix
+            ids += tok(assistant_prefix, add_special_tokens=False)["input_ids"]
+        return text, ids
     text = f"{system}\n\n{user_text}" if system else user_text
     return text, tok(text)["input_ids"]
 

@@ -1,0 +1,48 @@
+# Step 4: end-to-end run on the local 16 GB GPU (DECISIONS.md D39–D47).
+run_id: local_e2e_001
+seed: 0
+n: 200
+output_dir: runs
+
+datasets:
+  # datasets 3.1 cannot parse the newer Hub metadata of some repos: those are read as files (hf:// paths, D49).
+  - {name: triviaqa, loader: hf, path: mandarjoshi/trivia_qa, subset: rc.nocontext, split: validation,
+     revision: 0f7faf33a3908546c6fd5b73a660e0f8ff173c2f, id_field: question_id, question_field: question, answer_field: answer.aliases, dedupe_ids: true}
+  - {name: squad_v2, loader: parquet,
+     path: "hf://datasets/rajpurkar/squad_v2@3ffb306f725f7d2ce8394bc1873b24868140c412/squad_v2/validation-00000-of-00001.parquet",
+     id_field: id, question_field: question, answer_field: answers.text, drop_empty_answers: true}
+  - {name: truthfulqa, loader: csv, path: "hf://datasets/domenicrosati/TruthfulQA@6a037f8d9403bbf12fb4cf6d0e91956df6a64e50/train.csv",
+     question_field: Question, answer_field: [Correct Answers, Best Answer], answer_split: "; "}
+  - {name: archivalqa, loader: parquet,
+     path: "hf://datasets/meithnav/archivalqa@c348705931335386a8b75c0a952fc82ac78f4cd8/data/train-00000-of-00001.parquet",
+     question_field: question, answer_field: response, drop_empty_answers: true}
+
+generators:
+  - {name: qwen2.5-1.5b-instruct, hf_id: Qwen/Qwen2.5-1.5B-Instruct, dtype: bfloat16, batch_size: 32}
+
+judges:
+  - {name: gemma-3-12b-it, hf_id: google/gemma-3-12b-it, dtype: bfloat16, quantization: bnb4, batch_size: 16}
+  - {name: qwen3.5-9b, hf_id: Qwen/Qwen3.5-9B, dtype: bfloat16, quantization: bnb4, batch_size: 16,
+     chat_template_kwargs: {enable_thinking: false}}
+  - {name: deepseek-r1-distill-qwen-7b, hf_id: deepseek-ai/DeepSeek-R1-Distill-Qwen-7B, dtype: bfloat16,
+     quantization: bnb4, batch_size: 16, assistant_prefix: "\n</think>\n\n"}  # the template already ends with "<think>\n"
+
+prompt:
+  template: "Answer the following question with a short answer. Do not explain.\nQuestion: {question}"
+  system: null
+  use_chat_template: true
+
+decoding: {do_sample: false, max_new_tokens: 64}
+
+judging:
+  prompt_template_file: judge_prompt.txt
+  retries: 1
+  max_new_tokens: 16
+
+extraction: {batch_size: 16, shard_size: 1000, matmul_precision: highest}
+
+cv: {outer_folds: 5, inner_folds: 3, repeats: 1, max_threshold_candidates: 200}
+
+detectors:
+  - {name: mean_hidden_probe}
+  - {name: saplma_style_probe}

@@ -9,6 +9,8 @@ from loguru import logger
 
 from hbench.config import ExperimentCfg
 from hbench.data import load_dataset_table
+import json
+
 from hbench.io import write_parquet_atomic
 from hbench.paths import RunPaths
 
@@ -35,6 +37,9 @@ def run(cfg: ExperimentCfg, datasets: list[str] | None = None) -> None:
                 raise RuntimeError(f"{path} has {len(existing)} rows but n = {cfg.n}; use a new run_id")
             logger.info(f"sample: {d.name} already done ({len(existing)} rows)")
             continue
-        s = draw_sample(load_dataset_table(d), cfg.n, cfg.seed, d.name)
+        table, stats = load_dataset_table(d)
+        s = draw_sample(table, cfg.n, cfg.seed, d.name)
+        stats.update(rows_after_filters=len(table), n=cfg.n, seed=cfg.seed)
         write_parquet_atomic(s, path)
-        logger.info(f"sample: {d.name} → {len(s)} rows")
+        path.with_suffix(".meta.json").write_text(json.dumps(stats, indent=2))
+        logger.info(f"sample: {d.name} → {len(s)} rows ({stats})")

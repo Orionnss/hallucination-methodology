@@ -39,7 +39,7 @@ def test_sample_deterministic_and_saved(make_cfg):
     sample.run(cfg)
     a = pd.read_parquet(cfg.run_dir / "samples" / "toy.parquet")
     assert len(a) == 10 and a["sample_id"].is_unique
-    b = draw_sample(a.drop(columns="dataset"), 10, 0, "toy")
+    b = draw_sample(a.drop(columns="dataset"), 10, 0, "toy")  # same seed → same draw from the same table
     assert sorted(b["sample_id"]) == sorted(a["sample_id"])
     sample.run(cfg)  # resume: no-op
     assert a.equals(pd.read_parquet(cfg.run_dir / "samples" / "toy.parquet"))
@@ -53,3 +53,37 @@ def test_sample_n_changed_needs_new_run(make_cfg):
     p.write_text(yaml.safe_dump(raw))
     with pytest.raises(RuntimeError, match="new run_id"):
         sample.run(load_config(p))
+
+
+def _ds(tmp_path, rows, **kw):
+    from hbench.config import DatasetCfg
+
+    p = tmp_path / "d.csv"
+    pd.DataFrame(rows).to_csv(p, index=False)
+    return DatasetCfg(name="d", loader="csv", path=str(p), id_field="id", answer_field="a", **kw)
+
+
+def test_dedupe_ids(tmp_path):
+    from hbench.data import load_dataset_table
+
+    rows = [{"id": "x", "question": "q1", "a": "A"}, {"id": "x", "question": "q1", "a": "A"}, {"id": "y", "question": "q2", "a": "B"}]
+    with pytest.raises(ValueError, match="duplicate sample IDs"):
+        load_dataset_table(_ds(tmp_path, rows))
+    df, st = load_dataset_table(_ds(tmp_path, rows, dedupe_ids=True))
+    assert len(df) == 2 and st["duplicates_dropped"] == 1
+    rows[1]["a"] = "other"
+    df, st = load_dataset_table(_ds(tmp_path, rows, dedupe_ids=True))
+    assert df["sample_id"].tolist() == ["y"] and st["conflicting_ids_dropped"] == 1 and st["conflicting_rows_dropped"] == 2
+
+
+def test_drop_empty_and_split_answers(tmp_path):
+    from hbench.data import load_dataset_table
+
+    rows = [{"id": "x", "question": "q", "a": "A; B;A", "b": "C"}, {"id": "y", "question": "q", "a": None, "b": None}]
+    with pytest.raises(ValueError, match="no expected answer"):
+        load_dataset_table(_ds(tmp_path, rows, answer_split=";"))
+    from hbench.config import DatasetCfg
+
+    cfg = _ds(tmp_path, rows, answer_split=";", drop_empty_answers=True).model_copy(update={"answer_field": ["a", "b"]})
+    df, st = load_dataset_table(cfg)
+    assert df["expected_answer"].tolist() == [["A", "B", "C"]] and st["empty_answers_dropped"] == 1
