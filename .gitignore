@@ -5,3 +5,6 @@ __pycache__/
 .pytest_cache/
 *.egg-info/
 .venv-judge/
+slurm/logs/
+slurm/units/
+slurm/cluster.env

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import importlib.metadata as md
 import json
+import os
 import platform
+import uuid
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -49,21 +51,30 @@ def save_run_provenance(cfg: ExperimentCfg, stage: str) -> Path:
     stage keeps the record of every run that wrote to the directory."""
     d = cfg.run_dir / "provenance"
     d.mkdir(parents=True, exist_ok=True)
-    (d / "config.resolved.yaml").write_text(yaml.safe_dump(cfg.model_dump(mode="json"), sort_keys=False))
+    _atomic_text(d / "config.resolved.yaml", yaml.safe_dump(cfg.model_dump(mode="json"), sort_keys=False))
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-    rec = {"stage": stage, "time_utc": stamp, "git": git_commit(), "env": environment_info()}
-    path = d / f"{stage}-{stamp}.json"
+    job = "-".join(x for x in (os.environ.get("SLURM_ARRAY_JOB_ID") or os.environ.get("SLURM_JOB_ID"), os.environ.get("SLURM_ARRAY_TASK_ID")) if x)
+    rec = {"stage": stage, "time_utc": stamp, "slurm_job": job or None, "git": git_commit(), "env": environment_info()}
+    path = d / f"{stage}-{stamp}{'-' + job if job else ''}.json"
     path.write_text(json.dumps(rec, indent=2))
     return path
 
 
 def record_model_revision(cfg: ExperimentCfg, role: str, name: str, hf_id: str, commit: str | None) -> None:
-    d = cfg.run_dir / "provenance"
+    """One file per model, so parallel array jobs never write the same file."""
+    d = cfg.run_dir / "provenance" / "model_revisions"
     d.mkdir(parents=True, exist_ok=True)
-    path = d / "model_revisions.json"
-    data = json.loads(path.read_text()) if path.exists() else {}
-    key = f"{role}:{name}"
-    if key in data and commit and data[key]["commit"] != commit:
-        raise RuntimeError(f"{key}: model revision changed between runs ({data[key]['commit']} → {commit})")
-    data[key] = {"hf_id": hf_id, "commit": commit}
-    path.write_text(json.dumps(data, indent=2, sort_keys=True))
+    path = d / f"{role}--{name}.json"
+    if path.exists():
+        old = json.loads(path.read_text())
+        if commit and old["commit"] and old["commit"] != commit:
+            raise RuntimeError(f"{role}:{name}: model revision changed between runs ({old['commit']} → {commit})")
+        if old["commit"] == commit:
+            return
+    _atomic_text(path, json.dumps({"hf_id": hf_id, "commit": commit}, indent=2))
+
+
+def _atomic_text(path: Path, text: str) -> None:
+    tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    tmp.write_text(text)
+    os.replace(tmp, path)

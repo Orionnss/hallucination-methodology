@@ -53,10 +53,16 @@ def _metrics_current(path, lh: str) -> bool:
     return "labels_hash" in m and bool((m["labels_hash"] == lh).all())
 
 
-def run(cfg: ExperimentCfg, detectors: list[str] | None = None) -> None:
+def run(
+    cfg: ExperimentCfg, detectors: list[str] | None = None, generators: list[str] | None = None, datasets: list[str] | None = None
+) -> None:
     paths = RunPaths(cfg)
     for g in cfg.generators:
+        if generators and g.name not in generators:
+            continue
         for d in cfg.datasets:
+            if datasets and d.name not in datasets:
+                continue
             lab = cell_labels(paths, g.name, d.name)
             folds = cell_folds(cfg, paths, g.name, d.name, lab)
             y = lab["y"].astype(int).to_numpy()

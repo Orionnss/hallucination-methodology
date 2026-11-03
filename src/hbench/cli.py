@@ -66,12 +66,41 @@ def extract(config: str = ConfigOpt, generator: Optional[list[str]] = NamesOpt, 
 
 
 @app.command()
-def evaluate(config: str = ConfigOpt, detector: Optional[list[str]] = NamesOpt) -> None:
+def evaluate(
+    config: str = ConfigOpt,
+    detector: Optional[list[str]] = NamesOpt,
+    generator: Optional[list[str]] = NamesOpt,
+    dataset: Optional[list[str]] = NamesOpt,
+) -> None:
     from hbench.stages import evaluate as st
 
     cfg = load_config(config)
     save_run_provenance(cfg, "evaluate")
-    st.run(cfg, detectors=detector)
+    st.run(cfg, detectors=detector, generators=generator, datasets=dataset)
+
+
+@app.command()
+def report(config: str = ConfigOpt) -> None:
+    from hbench.stages import report as st
+
+    cfg = load_config(config)
+    save_run_provenance(cfg, "report")
+    print(st.run(cfg))
+
+
+@app.command()
+def units(config: str = ConfigOpt, stage: str = typer.Option(..., help="generate | judge | extract | evaluate")) -> None:
+    """Print one work unit per line (tab-separated names), for SLURM array jobs."""
+    cfg = load_config(config)
+    cells = [(g.name, d.name) for g in cfg.generators for d in cfg.datasets]
+    if stage in ("generate", "extract", "evaluate"):
+        rows = cells
+    elif stage == "judge":
+        rows = [(j.name, g, d) for j in cfg.judges for g, d in cells]
+    else:
+        raise typer.BadParameter(f"no array units for stage {stage!r}")
+    for r in rows:
+        print("\t".join(r))
 
 
 if __name__ == "__main__":
