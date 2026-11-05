@@ -1,4 +1,4 @@
-# Method card: icr_probe (DRAFT — integration not started)
+# Method card: icr_probe (integrated; cluster parity pending)
 
 ```yaml
 name: icr_probe
@@ -31,6 +31,7 @@ deviations_from_original:
   - "training loop written by us from paper B.4 (their trainer is incomplete, D68)"
   - "core positions defined by D69 (not specified in their code)"
   - "label: we predict P(hallucination); the paper's output is P(non-hallucinated) (same BCE)"
-parity_test: pending (cluster, D65) — their ICRScore on generate() output vs ours on adapter output
+  - "a training batch of one example is skipped (batch norm); CPU-only no-op for their torch.cuda.device context (D78)"
+parity_test: {tiny_model_cpu_fp32: {max_rel_err: 2.5e-7, spearman: 1.0, n_samples: 3, date: 2026-11-05}, real_generators: pending (cluster, D65)}  # their ICRScore on generate() output vs ours on adapter output
 reproduction_test: not_done
 ```

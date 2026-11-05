@@ -1,3 +1,9 @@
 [submodule "third_party/lapeigvals"]
 	path = third_party/lapeigvals
 	url = https://github.com/graphml-lab-pwr/lapeigvals.git
+[submodule "third_party/icr_probe"]
+	path = third_party/icr_probe
+	url = https://github.com/XavierZhang2002/ICR_Probe.git
+[submodule "third_party/charm"]
+	path = third_party/charm
+	url = https://github.com/Noired/charm.git

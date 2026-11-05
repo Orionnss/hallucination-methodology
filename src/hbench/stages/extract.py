@@ -18,6 +18,7 @@ from hbench.pool.adapter import to_generate_output
 from hbench.pool.batching import build_pass_batch, to_device
 from hbench.pool.interfaces import Activations, Needs
 from hbench.pool.registry import get_detector
+from hbench.pool.spans import user_token_span
 from hbench.pool.storage import PoolStorage, ReducerStorage
 from hbench.pool.writer import shard_path, write_manifest
 from hbench.provenance import record_model_revision
@@ -55,6 +56,10 @@ def run(cfg: ExperimentCfg, generators: list[str] | None = None, datasets: list[
             if gens.empty:
                 raise RuntimeError(f"extract: no generations for {g.name}/{d.name}")
             gens = gens.sort_values("key").reset_index(drop=True)
+            if needs.user_span:  # the user text π(q) of each sample (D69)
+                q = pd.read_parquet(paths.samples(d.name))[["sample_id", "question"]]
+                gens = gens.merge(q, on="sample_id", how="left", validate="many_to_one")
+                gens["user_text"] = [cfg.prompt.template.format(question=x) for x in gens["question"]]
             # Empty answers (only EOS) have no answer span: excluded for all detectors (D30).
             gens = gens[gens["answer_n_tokens"] > 0].reset_index(drop=True)
             fdir = paths.features(g.name, d.name)
@@ -105,13 +110,20 @@ def _run_shard(lm, shard: pd.DataFrame, pool: PoolStorage, needs: Needs, bs: int
     pad = lm.tokenizer.pad_token_id
     for start in tqdm(range(0, len(shard), bs), desc=desc, leave=False):
         rows = shard.iloc[start : start + bs]
+        prompts = [list(x) for x in rows["prompt_ids"]]
+        spans = (
+            [user_token_span(lm.tokenizer, t, p, u) for t, p, u in zip(rows["prompt_text"], prompts, rows["user_text"])]
+            if needs.user_span
+            else None
+        )
         batch = build_pass_batch(
             rows["key"].tolist(),
             rows["sample_id"].tolist(),
-            [list(x) for x in rows["prompt_ids"]],
+            prompts,
             [list(x) for x in rows["answer_ids"]],
             rows["answer_n_tokens"].tolist(),
             pad,
+            spans,
         )
         batch = to_device(batch, lm.device)
         with torch.no_grad():

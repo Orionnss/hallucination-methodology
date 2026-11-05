@@ -15,6 +15,7 @@ class Needs:
     attentions: bool = False
     logits: bool = False
     generate_format: bool = False  # the method's original code expects HF generate() output (adapter)
+    user_span: bool = False  # token span of the user text in the prompt (D69)
     extra_samples: int = 0
 
     def union(self, other: "Needs") -> "Needs":
@@ -23,6 +24,7 @@ class Needs:
             attentions=self.attentions or other.attentions,
             logits=self.logits or other.logits,
             generate_format=self.generate_format or other.generate_format,
+            user_span=self.user_span or other.user_span,
             extra_samples=max(self.extra_samples, other.extra_samples),
         )
 
@@ -42,6 +44,14 @@ class PassBatch:
     answer_mask: torch.Tensor  # [B, W + T] bool; answer tokens, EOS excluded (D8)
     answer_len: torch.Tensor  # [B]
     last_answer_pos: torch.Tensor  # [B]; position of the last answer token (EOS excluded)
+    prompt_len: list[int] = field(default_factory=list)  # real prompt tokens per example
+    full_answer_len: list[int] = field(default_factory=list)  # stored answer tokens incl. EOS
+    user_span: list[tuple[int, int]] = field(default_factory=list)  # user-text token span in the unpadded prompt (D69)
+
+    def example_slice(self, i: int) -> slice:
+        """Positions of example i without padding: prompt + stored answer."""
+        W = self.prompt_width
+        return slice(W - self.prompt_len[i], W + self.full_answer_len[i])
 
 
 @dataclass

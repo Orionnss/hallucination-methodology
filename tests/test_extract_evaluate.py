@@ -122,3 +122,16 @@ def test_lapeigvals_in_pool(make_cfg):
     m = pd.read_parquet(RunPaths(cfg).metrics("lapeigvals", "tiny0", "toy"))
     assert len(m) == 5 and m["auroc"].between(0, 1).all()
     assert {json.loads(p)["layer"] for p in m["params"]} <= {"all", 0, 1}
+
+
+def test_icr_in_pool(make_cfg):
+    cfg = load_config(make_cfg(n=80, judges=ONE_NOISY_JUDGE, detectors=[{"name": "icr_probe"}],
+                               extraction={"batch_size": 8, "shard_size": 40, "device": "cpu"}))
+    _upstream(cfg)
+    extract.run(cfg)
+    with h5py.File(RunPaths(cfg).features("tiny0", "toy") / "icr_mean" / "shard-00000.h5") as f:
+        x = f["x"][()]
+    assert x.shape[1:] == (2,) and np.isfinite(x).all()  # [L] per sample
+    evaluate.run(cfg)
+    m = pd.read_parquet(RunPaths(cfg).metrics("icr_probe", "tiny0", "toy"))
+    assert len(m) == 5 and m["auroc"].between(0, 1).all()

@@ -15,6 +15,7 @@ def build_pass_batch(
     answer_ids: list[list[int]],
     answer_n_tokens: list[int],
     pad_token_id: int,
+    user_spans: list[tuple[int, int]] | None = None,
 ) -> PassBatch:
     B = len(keys)
     W = max(len(p) for p in prompt_ids)
@@ -44,6 +45,9 @@ def build_pass_batch(
         answer_mask=answer_mask,
         answer_len=n,
         last_answer_pos=W + n - 1,
+        prompt_len=[len(p) for p in prompt_ids],
+        full_answer_len=[len(a) for a in answer_ids],
+        user_span=list(user_spans) if user_spans is not None else [],
     )
 
 
