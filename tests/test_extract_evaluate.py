@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 import h5py
 import numpy as np
 import pandas as pd
@@ -155,3 +157,18 @@ def test_charm_in_pool(make_cfg):
     evaluate.run(cfg)
     m = pd.read_parquet(RunPaths(cfg).metrics("charm", "tiny0", "toy"))
     assert len(m) == 5 and m["auroc"].between(0, 1).all()
+
+
+@pytest.mark.parametrize("method", ["lapeigvals", "icr_probe", "charm"])
+def test_parity_stage(make_cfg, method):
+    from hbench.stages import parity
+
+    cfg = load_config(make_cfg(n=6, judges=ONE_NOISY_JUDGE, detectors=[{"name": method}],
+                               prompt={"template": "{question}", "use_chat_template": False} if method == "charm"
+                               else {"template": "Answer the following question with a short answer. Do not explain.\nQuestion: {question}", "use_chat_template": True},
+                               decoding={"max_new_tokens": 4}, extraction={"device": "cpu"}))
+    sample.run(cfg)
+    generate.run(cfg)
+    out = parity.run(cfg, method, "tiny0", "float32", n_parity=4, batch_size=2)
+    assert out["verdict"] == "pass" and out["stored_answers_checked"] and out["n_samples"] + out["n_excluded"] == 4
+    assert (RunPaths(cfg).root / "parity" / f"{method}__tiny0__float32.json").exists()

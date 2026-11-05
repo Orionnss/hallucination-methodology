@@ -3,7 +3,7 @@
 #   sample → generate[] → judge[] → aggregate ─┐
 #                       └→ extract[] ──────────┴→ evaluate[] → report
 # Every stage resumes by key, so re-submitting after a failure only redoes the missing work.
-# Usage: slurm/submit_all.sh <config.yaml> [first-stage]
+# Usage: slurm/submit_all.sh <config.yaml> [first-stage]      (WITH_PARITY=1 also submits the parity array)
 set -euo pipefail
 CONFIG=$1; FIRST=${2:-sample}
 cd "$(dirname "$0")/.."
@@ -46,4 +46,7 @@ J_SAMPLE=""; J_GEN=""; J_JUDGE=""; J_AGG=""; J_EXT=""; J_EVAL=""
 EVAL_DEP=$(IFS=:; echo "${J_AGG}${J_AGG:+${J_EXT:+:}}${J_EXT}")
 [ -z "${SKIP_evaluate:-}" ]  && J_EVAL=$(array evaluate "$TIME_EVALUATE" "$EVAL_DEP" "${cpu[@]}")
 J_REP=$(single report "$J_EVAL")
-echo "run $RUN: sample=$J_SAMPLE generate=$J_GEN judge=$J_JUDGE aggregate=$J_AGG extract=$J_EXT evaluate=$J_EVAL report=$J_REP"
+# Parity tests (D65): after sample (they compare against stored answers when generate is done).
+J_PAR=""
+[ -n "${WITH_PARITY:-}" ] && J_PAR=$(array parity "$TIME_PARITY" "$J_GEN" "${gpu[@]}")
+echo "run $RUN: sample=$J_SAMPLE generate=$J_GEN judge=$J_JUDGE aggregate=$J_AGG extract=$J_EXT evaluate=$J_EVAL report=$J_REP parity=$J_PAR"

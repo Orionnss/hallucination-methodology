@@ -2,6 +2,7 @@
 # One array task = one work unit of a stage (prompt §3.2):
 #   generate / extract / evaluate : one (generator × dataset)
 #   judge                         : one (judge × generator × dataset)
+#   parity                        : one (method × generator × dtype)
 # Usage (from submit_all.sh): sbatch --array=0-(N-1) slurm/array.sbatch <stage> <config> <units-file>
 #SBATCH --job-name=hbench
 #SBATCH --output=slurm/logs/%x-%A_%a.out
@@ -15,6 +16,7 @@ echo "[$(date -Is)] $STAGE task $SLURM_ARRAY_TASK_ID on $(hostname): $LINE"
 nvidia-smi -L 2>/dev/null || true
 case "$STAGE" in
   judge)    exec uv run --frozen hbench judge -c "$CONFIG" --judge "$A" --generator "$B" --dataset "$C" ;;
+  parity)   exec uv run --frozen hbench parity -c "$CONFIG" --method "$A" --generator "$B" --dtype "$C" ;;
   generate|extract|evaluate)
             exec uv run --frozen hbench "$STAGE" -c "$CONFIG" --generator "$A" --dataset "$B" ;;
   *) echo "unknown array stage $STAGE" >&2; exit 2 ;;

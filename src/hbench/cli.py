@@ -89,7 +89,22 @@ def report(config: str = ConfigOpt) -> None:
 
 
 @app.command()
-def units(config: str = ConfigOpt, stage: str = typer.Option(..., help="generate | judge | extract | evaluate")) -> None:
+def parity(
+    config: str = ConfigOpt,
+    method: str = typer.Option(..., help="lapeigvals | icr_probe | charm"),
+    generator: str = typer.Option(...),
+    dtype: str = typer.Option("float32", help="float32 | bfloat16"),
+    n_parity: int = typer.Option(16),
+) -> None:
+    from hbench.stages import parity as st
+
+    cfg = load_config(config)
+    save_run_provenance(cfg, "parity")
+    print(st.run(cfg, method, generator, dtype, n_parity))
+
+
+@app.command()
+def units(config: str = ConfigOpt, stage: str = typer.Option(..., help="generate | judge | extract | evaluate | parity")) -> None:
     """Print one work unit per line (tab-separated names), for SLURM array jobs."""
     cfg = load_config(config)
     cells = [(g.name, d.name) for g in cfg.generators for d in cfg.datasets]
@@ -97,6 +112,11 @@ def units(config: str = ConfigOpt, stage: str = typer.Option(..., help="generate
         rows = cells
     elif stage == "judge":
         rows = [(j.name, g, d) for j in cfg.judges for g, d in cells]
+    elif stage == "parity":
+        from hbench.stages.parity import METHODS
+
+        methods = [d.name for d in cfg.detectors if d.name in METHODS]
+        rows = [(m, g.name, dt) for m in methods for g in cfg.generators for dt in ("float32", "bfloat16")]
     else:
         raise typer.BadParameter(f"no array units for stage {stage!r}")
     for r in rows:
