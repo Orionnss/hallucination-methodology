@@ -1,4 +1,4 @@
-# Method card: charm (DRAFT — integration not started)
+# Method card: charm (integrated; cluster parity pending)
 
 ```yaml
 name: charm
@@ -27,9 +27,11 @@ deviations_from_original:
   - "activation layer = round(0.75·L) for our generators (their 24 of 32)"
   - "validation split carved from T_f (they use fixed 60/20/20 splits); 1 seed (they average 3)"
   - "graphs stored as features in our shard files (they store per-sample .pt)"
-  - "wandb not used (their training.py imports it at module level: stub or install)"
-parity_test: pending (cluster, D65)
+  - "wandb installed but disabled (their training.py imports it at module level)"
+  - "torch-geometric 2.6.1 (D79)"
+  - "trained on 1 − y with their label convention; best checkpoint via a temporary file; no single-graph batch (D80)"
+parity_test: {tiny_model_cpu_fp32: {edge_index: identical, max_rel_err: 1.8e-7, spearman: 1.0, n_samples: 3, date: 2026-11-05}, real_generators: pending (cluster, D65)}
 reproduction_test: not_done
 ```
 
-Open items before coding: PyG wheels (pyg_lib, torch_scatter, torch_sparse) for torch 2.9.1; ragged graph storage in the feature shards; disk size (estimate 2–3 MB per sample for 40 layers × 40 heads).
+Storage: ragged HDF5 shards (one group per sample). Disk estimate: about 4 MB per sample in float32 for Gemma-3-12B (48 layers × 16 heads, activations of layer 36). PyG works without pyg_lib / torch_scatter for the operations CHARM uses.

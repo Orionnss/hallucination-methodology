@@ -14,7 +14,7 @@ from transformers.generation import GenerateDecoderOnlyOutput
 import hbench.pool  # noqa: F401  (puts lapeigvals on sys.path)
 from hallucinations.llm.activation_storage import ActivationStorage
 from hbench.pool.interfaces import Activations, FeatureExtractor, PassBatch
-from hbench.pool.writer import shard_path, write_shard
+from hbench.pool.writer import shard_path, write_ragged_shard, write_shard
 
 
 class ReducerStorage(ActivationStorage):
@@ -42,15 +42,23 @@ class ReducerStorage(ActivationStorage):
         acts: Activations = kwargs["acts"]
         batch: PassBatch = kwargs["batch"]
         x = self.extractor.reduce(acts, batch)
-        assert x.shape[0] == len(batch.keys)
-        self._x.append(np.asarray(x, dtype=self.dtype))
+        assert len(x) == len(batch.keys)
+        if getattr(self.extractor, "ragged", False):
+            self._x.append(list(x))  # list of dicts of arrays
+        else:
+            self._x.append(np.asarray(x, dtype=self.dtype))
         self._keys += batch.keys
         self._sids += batch.sample_ids
 
     def flush(self) -> None:
         if self.shard is None or not self._keys:
             return
-        write_shard(shard_path(self.method_dir, self.shard), np.concatenate(self._x), self._keys, self._sids)
+        if getattr(self.extractor, "ragged", False):
+            items = [{k: np.asarray(v, dtype=self.dtype) if np.issubdtype(np.asarray(v).dtype, np.floating) else np.asarray(v) for k, v in it.items()}
+                     for chunk in self._x for it in chunk]
+            write_ragged_shard(shard_path(self.method_dir, self.shard), items, self._keys, self._sids)
+        else:
+            write_shard(shard_path(self.method_dir, self.shard), np.concatenate(self._x), self._keys, self._sids)
         self._x, self._keys, self._sids = [], [], []
 
 

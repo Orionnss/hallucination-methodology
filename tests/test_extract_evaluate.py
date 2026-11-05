@@ -135,3 +135,23 @@ def test_icr_in_pool(make_cfg):
     evaluate.run(cfg)
     m = pd.read_parquet(RunPaths(cfg).metrics("icr_probe", "tiny0", "toy"))
     assert len(m) == 5 and m["auroc"].between(0, 1).all()
+
+
+def test_charm_in_pool(make_cfg):
+    # Short prompts: tiny-gpt2 attends nearly uniformly, and CHARM keeps only attention ≥ 0.05.
+    cfg = load_config(make_cfg(n=60, judges=ONE_NOISY_JUDGE, detectors=[{"name": "charm"}],
+                               prompt={"template": "{question}", "use_chat_template": False},
+                               extraction={"batch_size": 8, "shard_size": 30, "device": "cpu"}))
+    _upstream(cfg)
+    extract.run(cfg)
+    from hbench.pool.writer import read_features
+
+    X, keys, _ = read_features(RunPaths(cfg).features("tiny0", "toy") / "charm_graph")
+    it = X[0]
+    n_nodes = it["x"].shape[0]
+    assert it["x"].shape[1] == 2 * 2 and it["edge_attr"].shape[1] == 2 * 2  # L·H node / edge features
+    assert it["act"].shape == (n_nodes, 2) and int(it["act_layer"]) == 2  # round(0.75 · 2) = 2
+    assert it["edge_index"].max() < n_nodes
+    evaluate.run(cfg)
+    m = pd.read_parquet(RunPaths(cfg).metrics("charm", "tiny0", "toy"))
+    assert len(m) == 5 and m["auroc"].between(0, 1).all()

@@ -30,7 +30,9 @@ REGISTRY: dict[str, DetectorSpec] = {
 
 
 def _register_published() -> None:
-    from hbench.pool.methods import icr_probe, lapeigvals
+    from hbench.pool.methods import charm, icr_probe, lapeigvals
+
+    REGISTRY["charm"] = DetectorSpec("charm", charm.CharmGraph, charm.CharmClassifier, {})
 
     REGISTRY["icr_probe"] = DetectorSpec("icr_probe", icr_probe.ICRFeature, icr_probe.ICRProbeClassifier, {})
 

@@ -82,7 +82,7 @@ def run(
                 if missing:
                     raise RuntimeError(f"{det.name}: {len(missing)} labelled samples have no features, e.g. {missing[:3]}")
                 X = X_all[[pos[s] for s in lab["sample_id"]]]
-                grid = resolve_grid(spec, det.grid, n_layers=X.shape[1], X=X)
+                grid = resolve_grid(spec, det.grid, n_layers=X.shape[1] if X.ndim > 1 else None, X=X)
                 fixed = dict(det.params)
 
                 def make_clf(**hp):

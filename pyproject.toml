@@ -12,7 +12,7 @@ dependencies = [
   "accelerate==1.10.1",
   "bitsandbytes==0.50.2",
   "datasets==5.0.1",
-  "torch-geometric==2.8.0.post1",  # CHARM (D71)
+  "torch-geometric==2.6.1",  # CHARM (D71); 2.7+ makes BaseTransform.forward abstract, CHARM's transforms define __call__ (D79)
   "wandb==0.30.0",  # imported at module level by CHARM's training.py; runs disabled
   "kernels==0.17.2",  # MXFP4 kernels for gpt-oss (D60)
   "scikit-learn==1.6.1",
