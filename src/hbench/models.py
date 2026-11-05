@@ -66,7 +66,7 @@ def load_model(cfg: ModelCfg, attn_implementation: str | None = None) -> LoadedM
     if device.type != "cuda":
         model = model.to(device)
     model = model.eval()
-    commit = getattr(model.config, "_commit_hash", None) or cfg.revision
+    commit = getattr(model.config, "_commit_hash", None) or _snapshot_commit(cfg.hf_id, cfg.revision) or cfg.revision
     return LoadedModel(model=model, tokenizer=tok, commit=commit, device=device)
 
 
@@ -77,3 +77,19 @@ def free_gpu() -> None:
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+
+
+def _snapshot_commit(hf_id: str, revision: str | None) -> str | None:
+    """Commit hash of the loaded snapshot, read from the HF cache path (transformers 5 no longer sets
+    `config._commit_hash`). None for a local directory."""
+    from pathlib import Path
+
+    if Path(hf_id).is_dir():
+        return None
+    from huggingface_hub import try_to_load_from_cache
+
+    p = try_to_load_from_cache(hf_id, "config.json", revision=revision)
+    if not isinstance(p, str):
+        return None
+    parts = Path(p).parts
+    return parts[parts.index("snapshots") + 1] if "snapshots" in parts else None
