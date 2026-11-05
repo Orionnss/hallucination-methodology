@@ -1,4 +1,4 @@
-# Method card: lapeigvals (DRAFT — integration not started)
+# Method card: lapeigvals (integrated; cluster parity pending)
 
 ```yaml
 name: lapeigvals
@@ -32,7 +32,7 @@ deviations_from_original:
   - "attentions from a teacher-forced eager pass, not generate() (adapter, D36)"
   - "TF32 import side effect undone; precision from the config (D29)"
   - "eager attention for the whole shared pass"
-parity_test: pending (cluster, D65)
+parity_test: {tiny_model_cpu_fp32: {max_rel_err: 6.5e-7, spearman: 1.0, n_samples: 3, date: 2026-11-05}, real_generators: pending (cluster, D65)}
 reproduction_test: not_done
 ```
 

@@ -6,6 +6,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+import numpy as np
+
 from hbench.pool.methods.reference import LastAnswerHidden, LayerLogReg, MeanAnswerHidden, SaplmaMLP
 
 
@@ -15,6 +17,8 @@ class DetectorSpec:
     extractor: Callable[..., Any]
     classifier: Callable[..., Any]
     default_grid: dict[str, Any] = field(default_factory=dict)
+    adjust_grid: Callable[[dict, np.ndarray], dict] | None = None  # label-free grid adjustment from the features
+    group: str = "published"  # report group: published | reimplemented | reference
 
 
 REGISTRY: dict[str, DetectorSpec] = {
@@ -25,15 +29,29 @@ REGISTRY: dict[str, DetectorSpec] = {
 }
 
 
+def _register_published() -> None:
+    from hbench.pool.methods import lapeigvals
+
+    REGISTRY["lapeigvals"] = DetectorSpec(
+        "lapeigvals", lapeigvals.LapEigvalsExtractor, lapeigvals.LapEigvalsLR,
+        {"k": lapeigvals.TOP_K_GRID, "layer": "all_and_each"}, adjust_grid=lapeigvals.adjust_grid,
+    )
+
+
+_register_published()
+
+
 def get_detector(name: str) -> DetectorSpec:
     if name not in REGISTRY:
         raise KeyError(f"unknown detector {name!r}; registered: {sorted(REGISTRY)}")
     return REGISTRY[name]
 
 
-def resolve_grid(spec: DetectorSpec, override: dict[str, list[Any]], n_layers: int) -> dict[str, list[Any]]:
+def resolve_grid(spec: DetectorSpec, override: dict[str, list[Any]], n_layers: int, X: np.ndarray | None = None) -> dict[str, list[Any]]:
     grid = dict(spec.default_grid)
     grid.update(override)
+    if spec.adjust_grid is not None:
+        grid = spec.adjust_grid(grid, X)
     if grid.get("layer") == "all":
         grid["layer"] = list(range(n_layers))
     return {k: (v if isinstance(v, list) else [v]) for k, v in grid.items()}

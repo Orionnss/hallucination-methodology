@@ -1,5 +1,7 @@
 """extract → evaluate on a tiny CPU model."""
 
+import json
+
 import h5py
 import numpy as np
 import pandas as pd
@@ -103,3 +105,20 @@ def test_evaluate_reruns_when_labels_change(make_cfg):
     m1 = pd.read_parquet(paths.metrics("mean_hidden_probe", "tiny0", "toy"))
     assert m1["labels_hash"].iloc[0] != m0["labels_hash"].iloc[0]
     assert (pd.read_parquet(paths.folds("tiny0", "toy"))["labels_hash"] == m1["labels_hash"].iloc[0]).all()
+
+
+def test_lapeigvals_in_pool(make_cfg):
+    cfg = load_config(make_cfg(n=80, judges=ONE_NOISY_JUDGE, detectors=[{"name": "lapeigvals", "grid": {"k": [5, 10]}}, {"name": "mean_hidden_probe", "grid": {"C": [1.0]}}],
+                               extraction={"batch_size": 8, "shard_size": 32, "device": "cpu"}))
+    _upstream(cfg)
+    extract.run(cfg)
+    fdir = RunPaths(cfg).features("tiny0", "toy")
+    files = sorted(p.relative_to(fdir).as_posix() for p in fdir.rglob("*") if p.is_file())
+    assert all(f == "manifest.json" or f.endswith(".h5") for f in files)
+    assert json.loads((fdir / "manifest.json").read_text())["attn_implementation"] == "eager"
+    with h5py.File(fdir / "lapeigvals_laplacian_topk" / "shard-00000.h5") as f:
+        assert f["x"].shape[1:] == (2, 2, 100)  # tiny-gpt2: 2 layers × 2 heads × top-100
+    evaluate.run(cfg)
+    m = pd.read_parquet(RunPaths(cfg).metrics("lapeigvals", "tiny0", "toy"))
+    assert len(m) == 5 and m["auroc"].between(0, 1).all()
+    assert {json.loads(p)["layer"] for p in m["params"]} <= {"all", 0, 1}

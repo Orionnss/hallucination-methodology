@@ -69,7 +69,10 @@ def run(cfg: ExperimentCfg, generators: list[str] | None = None, datasets: list[
                 mcfg = g.model_copy(update={"dtype": xcfg.dtype or g.dtype, "device": xcfg.device})
                 lm = load_model(mcfg, attn_implementation=attn_impl)
                 record_model_revision(cfg, "generator", g.name, g.hf_id, lm.commit)
-            storages = {m: ReducerStorage(ex, fdir / m, xcfg.feature_dtype) for m, ex in extractors.items()}
+            storages = {
+                m: (ex.make_storage(fdir / m, xcfg.feature_dtype, lm.tokenizer) if hasattr(ex, "make_storage") else ReducerStorage(ex, fdir / m, xcfg.feature_dtype))
+                for m, ex in extractors.items()
+            }
             pool = PoolStorage(storages)
             for s in todo:
                 shard = gens.iloc[s * xcfg.shard_size : (s + 1) * xcfg.shard_size]
@@ -138,5 +141,6 @@ def _run_shard(lm, shard: pd.DataFrame, pool: PoolStorage, needs: Needs, bs: int
             input_length=batch.prompt_width,
             acts=acts,
             batch=batch,
+            tokenizer=lm.tokenizer,
         )
         del out, acts, gen_out
