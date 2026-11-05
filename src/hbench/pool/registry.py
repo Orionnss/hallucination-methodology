@@ -22,15 +22,20 @@ class DetectorSpec:
 
 
 REGISTRY: dict[str, DetectorSpec] = {
+    # Reference detectors of prompt §3.3 (pipeline baselines, not published methods).
     "mean_hidden_probe": DetectorSpec(
-        "mean_hidden_probe", MeanAnswerHidden, LayerLogReg, {"layer": "all", "C": [1e-3, 1e-2, 1e-1, 1.0, 10.0, 100.0]}
+        "mean_hidden_probe", MeanAnswerHidden, LayerLogReg, {"layer": "all", "C": [1e-3, 1e-2, 1e-1, 1.0, 10.0, 100.0]}, group="reference"
     ),
-    "saplma_style_probe": DetectorSpec("saplma_style_probe", LastAnswerHidden, SaplmaMLP, {"layer": "all"}),
+    "saplma_style_probe": DetectorSpec("saplma_style_probe", LastAnswerHidden, SaplmaMLP, {"layer": "all"}, group="reference"),
 }
 
 
 def _register_published() -> None:
-    from hbench.pool.methods import charm, icr_probe, lapeigvals
+    from hbench.pool.methods import charm, icr_probe, lapeigvals, saplma_reimpl
+
+    REGISTRY["saplma_reimpl"] = DetectorSpec(
+        "saplma_reimpl", saplma_reimpl.SaplmaReimplFeature, saplma_reimpl.SaplmaReimplMLP, {"layer": "all"}, group="reimplemented"
+    )
 
     REGISTRY["charm"] = DetectorSpec("charm", charm.CharmGraph, charm.CharmClassifier, {})
 

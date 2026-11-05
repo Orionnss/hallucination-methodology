@@ -60,3 +60,14 @@ def test_report_stage(make_cfg):
     s = (out / "summary.md").read_text()
     assert "## Labelling" in s and "Pooled AUROC (not the main aggregate)" in s and "**" in s
     assert (pd.read_csv(t / "labelling.csv")["n"] == 90).all()
+    assert "Reference probes" in (t / "auroc.tex").read_text() and "| *Reference probes" in s
+
+
+def test_report_groups_order():
+    from hbench.stages.report import order_by_group, to_markdown
+
+    groups = {"a": "reference", "b": "published", "c": "reimplemented"}
+    assert order_by_group(["a", "b", "c"], groups) == ["b", "c", "a"]
+    wide = pd.DataFrame({("g", "d"): ["1", "2", "3"]}, index=["b", "c", "a"])
+    md = to_markdown(wide, groups)
+    assert md.index("Published") < md.index("Reimplemented") < md.index("Reference")

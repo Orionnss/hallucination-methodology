@@ -92,7 +92,27 @@ def _tex_escape(s: str) -> str:
     return s
 
 
-def to_latex_booktabs(wide: pd.DataFrame, caption: str, label: str) -> str:
+GROUP_ORDER = ("published", "reimplemented", "reference")
+GROUP_TITLES = {
+    "published": "Published methods (original code)",
+    "reimplemented": "Reimplemented from the paper (no official code)",
+    "reference": "Reference probes (pipeline baselines)",
+}
+
+
+def detector_groups(cfg: ExperimentCfg) -> dict[str, str]:
+    from hbench.pool.registry import get_detector
+
+    return {d.name: get_detector(d.name).group for d in cfg.detectors}
+
+
+def order_by_group(detectors: list[str], groups: dict[str, str]) -> list[str]:
+    """Report rows: published methods, then reimplementations (ADDING_A_METHOD.md case D: separate
+    group in all tables), then reference probes; config order inside a group."""
+    return sorted(detectors, key=lambda d: GROUP_ORDER.index(groups.get(d, "published")))
+
+
+def to_latex_booktabs(wide: pd.DataFrame, caption: str, label: str, groups: dict[str, str] | None = None) -> str:
     cols = list(wide.columns)
     gens = []
     for g, _ in cols:
@@ -116,17 +136,30 @@ def to_latex_booktabs(wide: pd.DataFrame, caption: str, label: str) -> str:
     lines.append(" ".join(rules))
     lines.append("Detector & " + " & ".join(_tex_escape(d) for _, d in cols) + r" \\")
     lines.append(r"\midrule")
+    prev = None
     for det, row in wide.iterrows():
+        g = (groups or {}).get(det)
+        if groups and g != prev:
+            if prev is not None:
+                lines.append(r"\midrule")
+            lines.append(rf"\multicolumn{{{len(cols) + 1}}}{{l}}{{\textit{{{_tex_escape(GROUP_TITLES[g])}}}}} \\")
+            prev = g
         cells = [str(v).replace("±", r"$\pm$") for v in row.tolist()]
         lines.append(_tex_escape(det) + " & " + " & ".join(cells) + r" \\")
     lines += [r"\bottomrule", r"\end{tabular}", r"\end{table}", ""]
     return "\n".join(lines)
 
 
-def to_markdown(wide: pd.DataFrame) -> str:
+def to_markdown(wide: pd.DataFrame, groups: dict[str, str] | None = None) -> str:
     head = "| Detector | " + " | ".join(f"{g} / {d}" for g, d in wide.columns) + " |"
     sep = "|---|" + "---|" * len(wide.columns)
-    rows = [f"| {det} | " + " | ".join(str(v) for v in row.tolist()) + " |" for det, row in wide.iterrows()]
+    rows, prev = [], None
+    for det, row in wide.iterrows():
+        g = (groups or {}).get(det)
+        if groups and g != prev:
+            rows.append(f"| *{GROUP_TITLES[g]}* |" + " |" * len(wide.columns))
+            prev = g
+        rows.append(f"| {det} | " + " | ".join(str(v) for v in row.tolist()) + " |")
     return "\n".join([head, sep, *rows])
 
 
@@ -232,7 +265,8 @@ def run(cfg: ExperimentCfg) -> Path:
     out = paths.root / "report"
     tables = out / "tables"
     tables.mkdir(parents=True, exist_ok=True)
-    detectors = [d.name for d in cfg.detectors]
+    groups = detector_groups(cfg)
+    detectors = order_by_group([d.name for d in cfg.detectors], groups)
     cells = cell_columns(cfg)
     m = load_metrics(cfg, paths)
 
@@ -242,16 +276,16 @@ def run(cfg: ExperimentCfg) -> Path:
         tidy.to_csv(tables / f"{metric}.csv", index=False)
         wide_tex = wide_strings(tidy, detectors, cells, r"\textbf{{{}}}")
         (tables / f"{metric}.tex").write_text(
-            to_latex_booktabs(wide_tex, f"{METRIC_NAMES[metric]} (mean ± std over outer folds; hallucination = positive class)", f"tab:{metric}")
+            to_latex_booktabs(wide_tex, f"{METRIC_NAMES[metric]} (mean ± std over outer folds; hallucination = positive class)", f"tab:{metric}", groups)
         )
-        md_tables[metric] = to_markdown(wide_strings(tidy, detectors, cells, "**{}**"))
+        md_tables[metric] = to_markdown(wide_strings(tidy, detectors, cells, "**{}**"), groups)
 
     pooled = pooled_auroc(cfg, paths)
     pooled.to_csv(tables / "pooled_auroc.csv", index=False)
     pw = pooled.pivot_table(index="detector", columns=["generator", "dataset"], values="pooled_auroc").reindex(index=detectors, columns=cells)
     pw_s = pw.map(lambda v: f"{v:.3f}")
     (tables / "pooled_auroc.tex").write_text(
-        to_latex_booktabs(pw_s, "Pooled AUROC (predictions pooled over the outer folds of each cell; not the main aggregate)", "tab:pooled_auroc")
+        to_latex_booktabs(pw_s, "Pooled AUROC (predictions pooled over the outer folds of each cell; not the main aggregate)", "tab:pooled_auroc", groups)
     )
 
     lab = pd.read_parquet(paths.label_stats())
