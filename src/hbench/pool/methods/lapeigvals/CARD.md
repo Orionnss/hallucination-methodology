@@ -32,7 +32,7 @@ deviations_from_original:
   - "attentions from a teacher-forced eager pass, not generate() (adapter, D36)"
   - "TF32 import side effect undone; precision from the config (D29)"
   - "eager attention for the whole shared pass"
-parity_test: {tiny_model_cpu_fp32: {max_rel_err: 6.5e-7, spearman: 1.0, n_samples: 3, date: 2026-11-05}, real_generators: pending (cluster, D65)}
+parity_test: {tiny_model_cpu_fp32: {max_rel_err: 6.5e-7, spearman: 1.0, n_samples: 3, date: 2026-11-05}, qwen3_1.7b_gpu_local: {float32: {verdict: pass_with_note, max_rel_err: 1.7e-3, spearman: 1.0000}, bfloat16: {verdict: pass_with_note, max_rel_err: 15.4, spearman: 0.9990}, n_samples: 7, excluded: 1, date: 2026-11-05}, real_generators: pending (cluster, D65), metric: D76 + D83}
 reproduction_test: not_done
 ```
 

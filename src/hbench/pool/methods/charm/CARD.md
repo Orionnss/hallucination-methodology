@@ -30,7 +30,7 @@ deviations_from_original:
   - "wandb installed but disabled (their training.py imports it at module level)"
   - "torch-geometric 2.6.1 (D79)"
   - "trained on 1 − y with their label convention; best checkpoint via a temporary file; no single-graph batch (D80)"
-parity_test: {tiny_model_cpu_fp32: {edge_index: identical, max_rel_err: 1.8e-7, spearman: 1.0, n_samples: 3, date: 2026-11-05}, real_generators: pending (cluster, D65)}
+parity_test: {tiny_model_cpu_fp32: {edge_index: identical, max_rel_err: 1.8e-7, spearman: 1.0, n_samples: 3, date: 2026-11-05}, qwen3_1.7b_gpu_local: {float32: {verdict: pass, max_rel_err: 2.4e-5, spearman: 1.0000, edges_flipped: 0, n_samples: 7, excluded: 1}, bfloat16: {verdict: pass_with_note, max_rel_err: 0.45, spearman: 0.9927, edges_flipped: 18 of ~1700 (D82), n_samples: 8}, date: 2026-11-05}, real_generators: pending (cluster, D65), metric: D76 + D83}
 reproduction_test: not_done
 ```
 

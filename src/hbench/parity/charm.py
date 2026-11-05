@@ -18,6 +18,8 @@ from hbench.pool.interfaces import Activations
 from hbench.pool.methods.charm import _charm, act_layer, charm_item
 
 FIELDS = ("x", "edge_attr", "act")
+THRESHOLD = 0.05  # their movies_att_act setting (D71)
+FLIP_MARGIN = 0.01  # D82: an edge present on one side only is tolerated if its attention < 0.05 + 0.01
 
 
 def run_original(lm: LoadedModel, prompts: list[list[int]], max_new_tokens: int):
@@ -63,9 +65,29 @@ def parity(lm: LoadedModel, prompts, stored_answers, max_new_tokens: int, batch_
     keep = [i for i in range(len(prompts)) if stored_answers is None or their_answers[i] == list(stored_answers[i])]
     ours = run_ours(lm, [prompts[i] for i in keep], [their_answers[i] for i in keep], batch_size)
     theirs = [theirs[i] for i in keep]
-    for k, (t, o) in enumerate(zip(theirs, ours)):
-        if not np.array_equal(t["edge_index"], o["edge_index"]):
-            # A different edge set is a structural mismatch (decision 6.A: fail, find the cause).
+    n_flipped, t_cmp, o_cmp = 0, [], []
+    for t, o in zip(theirs, ours):
+        r = _align_edges(t, o)
+        if r is None:
+            # An edge set differing beyond threshold flips is a structural mismatch (decision 6.A: fail).
             return ParityResult("charm", dtype, len(ours), len(prompts) - len(keep), float("inf"), float("inf"), float("nan"), "fail")
-    flat = lambda items: [np.concatenate([it[f].ravel() for f in FIELDS]) for it in items]  # noqa: E731
-    return compare("charm", dtype, flat(theirs), flat(ours), n_excluded=len(prompts) - len(keep))
+        n_flipped += r[0]
+        t_cmp.append(np.concatenate([t["x"].ravel(), r[1].ravel(), t["act"].ravel()]))
+        o_cmp.append(np.concatenate([o["x"].ravel(), r[2].ravel(), o["act"].ravel()]))
+    res = compare("charm", dtype, t_cmp, o_cmp, n_excluded=len(prompts) - len(keep))
+    res.n_edges_flipped = n_flipped
+    return res
+
+
+def _align_edges(t: dict, o: dict):
+    """(number of flipped edges, their edge_attr, our edge_attr) on the common edges, or None when an
+    edge present on one side only has attention ≥ 0.05 + FLIP_MARGIN on that side (D82). The edge
+    attention on the side that has it is the max of its edge_attr over heads (their thresholding sets
+    values < 0.05 to 0)."""
+    et = {tuple(e): k for k, e in enumerate(t["edge_index"].T.tolist())}
+    eo = {tuple(e): k for k, e in enumerate(o["edge_index"].T.tolist())}
+    only = [(t["edge_attr"], et[e]) for e in et.keys() - eo.keys()] + [(o["edge_attr"], eo[e]) for e in eo.keys() - et.keys()]
+    if any(attr[k].max() >= THRESHOLD + FLIP_MARGIN for attr, k in only):
+        return None
+    common = [e for e in et if e in eo]
+    return len(only), t["edge_attr"][[et[e] for e in common]], o["edge_attr"][[eo[e] for e in common]]

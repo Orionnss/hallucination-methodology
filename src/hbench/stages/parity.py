@@ -64,7 +64,8 @@ def run(cfg: ExperimentCfg, method: str, generator: str, dtype: str, n_parity: i
     p = paths.root / "parity" / f"{method}__{g.name}__{dtype}.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(out, indent=2))
-    logger.info(f"parity {method} / {g.name} / {dtype}: {r.verdict} (max rel err {r.max_rel_err:.2e}, ρ {r.spearman:.4f}, excluded {r.n_excluded})")
+    logger.info(f"parity {method} / {g.name} / {dtype}: {r.verdict} (max rel err {r.max_rel_err:.2e}, ρ {r.spearman:.4f}, excluded {r.n_excluded}"
+                + (f", edges flipped {r.n_edges_flipped}" if r.n_edges_flipped is not None else "") + ")")
     del lm
     free_gpu()
     return out

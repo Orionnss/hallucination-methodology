@@ -32,6 +32,6 @@ deviations_from_original:
   - "core positions defined by D69 (not specified in their code)"
   - "label: we predict P(hallucination); the paper's output is P(non-hallucinated) (same BCE)"
   - "a training batch of one example is skipped (batch norm); CPU-only no-op for their torch.cuda.device context (D78)"
-parity_test: {tiny_model_cpu_fp32: {max_rel_err: 2.5e-7, spearman: 1.0, n_samples: 3, date: 2026-11-05}, real_generators: pending (cluster, D65)}  # their ICRScore on generate() output vs ours on adapter output
+parity_test: {tiny_model_cpu_fp32: {max_rel_err: 2.5e-7, spearman: 1.0, n_samples: 3, date: 2026-11-05}, qwen3_1.7b_gpu_local: {float32: {verdict: pass, max_rel_err: 2.3e-5, spearman: 1.0000, n_samples: 7, excluded: 1}, bfloat16: {verdict: pass_with_note, max_rel_err: 2.8, spearman: 0.9993, n_samples: 8}, date: 2026-11-05}, real_generators: pending (cluster, D65), metric: D76 + D83}  # their ICRScore on generate() output vs ours on adapter output
 reproduction_test: not_done
 ```
