@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Run the judge stage in its own environment (.venv-judge, uv group `judge`; DECISIONS.md D41).
+# Kept for compatibility: the judge stage now runs in the single environment (DECISIONS.md D62).
 set -euo pipefail
 cd "$(dirname "$0")/.."
-export UV_PROJECT_ENVIRONMENT=.venv-judge
-exec uv run --no-default-groups --group judge hbench judge "$@"
+exec uv run hbench judge "$@"

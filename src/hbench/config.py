@@ -36,6 +36,10 @@ class ModelCfg(_Strict):
     batch_size: int = 16
     device: str = "auto"  # "auto" → cuda if available, else cpu
     quantization: Literal["none", "bnb4"] = "none"  # bnb4 = bitsandbytes 4-bit NF4, bf16 compute (D42)
+    # Extra chat-template variables, e.g. {"enable_thinking": false} (Qwen3 generator D63, Qwen3.5/3.8 judges D43)
+    # or {"reasoning_effort": "low"} (gpt-oss, D61).
+    chat_template_kwargs: dict[str, Any] = Field(default_factory=dict)
+    template_date: str | None = None  # date returned by the template's strftime_now, e.g. "2026-11-05" (D72)
 
 
 class ThinkingCfg(_Strict):
@@ -51,10 +55,7 @@ class ThinkingCfg(_Strict):
 
 class JudgeCfg(ModelCfg):
     kind: Literal["hf", "mock"] = "hf"
-    # D43: e.g. {"enable_thinking": false} for Qwen3.5; text appended after the
-    # generation prompt, e.g. an empty think block for DeepSeek-R1-Distill.
-    chat_template_kwargs: dict[str, Any] = Field(default_factory=dict)
-    assistant_prefix: str = ""
+    assistant_prefix: str = ""  # text appended after the generation prompt (D43)
     thinking: ThinkingCfg = Field(default_factory=ThinkingCfg)
     mock: dict[str, Any] = Field(default_factory=dict)  # only for kind="mock" (tests)
 

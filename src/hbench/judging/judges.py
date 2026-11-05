@@ -98,7 +98,10 @@ class HFJudge:
         for s in range(0, len(items), bs):
             chunk = items[s : s + bs]
             prompts = [
-                build_prompt(self.lm, render_judge_prompt(self.template, it), None, True, self.cfg.chat_template_kwargs, self.cfg.assistant_prefix)[1]
+                build_prompt(
+                    self.lm, render_judge_prompt(self.template, it), None, True,
+                    self.cfg.chat_template_kwargs, self.cfg.assistant_prefix, self.cfg.template_date,
+                )[1]
                 for it in chunk
             ]
             meta = [JudgeOut(raw="") for _ in chunk]

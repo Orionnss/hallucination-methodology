@@ -87,3 +87,18 @@ def test_drop_empty_and_split_answers(tmp_path):
     cfg = _ds(tmp_path, rows, answer_split=";", drop_empty_answers=True).model_copy(update={"answer_field": ["a", "b"]})
     df, st = load_dataset_table(cfg)
     assert df["expected_answer"].tolist() == [["A", "B", "C"]] and st["empty_answers_dropped"] == 1
+
+
+def test_fixed_template_date():
+    from datetime import datetime
+
+    from transformers import AutoTokenizer
+
+    from hbench.generation import fixed_template_date
+    from tests.conftest import TINY
+
+    tok = AutoTokenizer.from_pretrained(TINY)
+    tok.chat_template = "{{ strftime_now('%Y-%m-%d') }}|{{ messages[0]['content'] }}"
+    with fixed_template_date("2001-02-03"):
+        assert tok.apply_chat_template([{"role": "user", "content": "q"}], tokenize=False).startswith("2001-02-03|")
+    assert tok.apply_chat_template([{"role": "user", "content": "q"}], tokenize=False).startswith(datetime.now().strftime("%Y-%m-%d"))

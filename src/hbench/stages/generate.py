@@ -19,8 +19,12 @@ from hbench.provenance import record_model_revision
 from hbench.seeding import set_all_seeds
 
 
-def prompt_hash(cfg: ExperimentCfg) -> str:
-    return stable_hash(cfg.prompt)
+def prompt_hash(cfg: ExperimentCfg, g=None) -> str:
+    """π plus the generator's own template settings (thinking switch, fixed date), when it has any."""
+    extra = {}
+    if g is not None and (g.chat_template_kwargs or g.template_date):
+        extra = {"chat_template_kwargs": g.chat_template_kwargs, "template_date": g.template_date}
+    return stable_hash([cfg.prompt.model_dump(mode="json"), extra]) if extra else stable_hash(cfg.prompt)
 
 
 def decoding_hash(cfg: ExperimentCfg) -> str:
@@ -38,10 +42,11 @@ def _todo(samples: pd.DataFrame, keys: list[str], done: set[str]) -> pd.DataFram
 
 def run(cfg: ExperimentCfg, generators: list[str] | None = None, datasets: list[str] | None = None) -> None:
     paths = RunPaths(cfg)
-    ph, dh = prompt_hash(cfg), decoding_hash(cfg)
+    dh = decoding_hash(cfg)
     for g in cfg.generators:
         if generators and g.name not in generators:
             continue
+        ph = prompt_hash(cfg, g)
         lm = None
         for d in cfg.datasets:
             if datasets and d.name not in datasets:
@@ -62,25 +67,29 @@ def run(cfg: ExperimentCfg, generators: list[str] | None = None, datasets: list[
                 set_all_seeds(cfg.seed)
                 lm = load_model(g)
                 record_model_revision(cfg, "generator", g.name, g.hf_id, lm.commit)
-            _generate_main(cfg, lm, g.name, d.name, todo, table, ph, dh, g.batch_size)
+            _generate_main(cfg, lm, g, d.name, todo, table, ph, dh)
             if n_extra:
-                _generate_extra(cfg, lm, g.name, d.name, extra_todo, extra_table, ph, eh, g.batch_size)
+                _generate_extra(cfg, lm, g, d.name, extra_todo, extra_table, ph, eh)
         del lm
         free_gpu()
 
 
-def _prompts(cfg: ExperimentCfg, lm, questions: list[str]) -> list[tuple[str, list[int]]]:
+def _prompts(cfg: ExperimentCfg, lm, questions: list[str], g) -> list[tuple[str, list[int]]]:
     return [
-        build_prompt(lm, cfg.prompt.template.format(question=q), cfg.prompt.system, cfg.prompt.use_chat_template)
+        build_prompt(
+            lm, cfg.prompt.template.format(question=q), cfg.prompt.system, cfg.prompt.use_chat_template,
+            g.chat_template_kwargs, template_date=g.template_date,
+        )
         for q in questions
     ]
 
 
-def _generate_main(cfg, lm, gname, dname, todo, table, ph, dh, bs) -> None:
+def _generate_main(cfg, lm, g, dname, todo, table, ph, dh) -> None:
+    gname, bs = g.name, g.batch_size
     eos = lm.eos_ids
     for start in tqdm(range(0, len(todo), bs), desc=f"generate {gname}/{dname}"):
         chunk = todo.iloc[start : start + bs]
-        built = _prompts(cfg, lm, chunk["question"].tolist())
+        built = _prompts(cfg, lm, chunk["question"].tolist(), g)
         outs = generate_batch(lm, [ids for _, ids in built], cfg.decoding)
         rows = []
         for (_, r), (ptext, pids), [o] in zip(chunk.iterrows(), built, outs):
@@ -103,12 +112,13 @@ def _generate_main(cfg, lm, gname, dname, todo, table, ph, dh, bs) -> None:
         table.append(pd.DataFrame(rows))
 
 
-def _generate_extra(cfg, lm, gname, dname, todo, table, ph, eh, bs) -> None:
+def _generate_extra(cfg, lm, g, dname, todo, table, ph, eh) -> None:
+    gname, bs = g.name, g.batch_size
     eos = lm.eos_ids
     k = cfg.extra_samples.num_samples
     for start in tqdm(range(0, len(todo), bs), desc=f"extra {gname}/{dname}"):
         chunk = todo.iloc[start : start + bs]
-        built = _prompts(cfg, lm, chunk["question"].tolist())
+        built = _prompts(cfg, lm, chunk["question"].tolist(), g)
         # Seed from the first key of the batch, so a resumed run reproduces the same batches.
         seed = int(stable_hash([cfg.seed, chunk["key"].iloc[0]], 8), 16)
         outs = generate_batch(lm, [ids for _, ids in built], cfg.extra_samples.decoding, num_return_sequences=k, generator_seed=seed)

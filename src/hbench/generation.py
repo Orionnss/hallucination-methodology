@@ -2,13 +2,39 @@
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
+from datetime import datetime
 
 import torch
 from transformers import LogitsProcessorList
 
 from hbench.config import DecodingCfg
 from hbench.models import LoadedModel
+
+
+@contextlib.contextmanager
+def fixed_template_date(date: str | None):
+    """Make the chat template's strftime_now() return `date` (YYYY-MM-DD) instead of today, so the
+    prompt does not change from day to day (gpt-oss, D72)."""
+    if date is None:
+        yield
+        return
+    from transformers.utils import chat_template_utils as ctu
+
+    fixed = datetime.strptime(date, "%Y-%m-%d")
+
+    class _Fixed(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed
+
+    old = ctu.datetime
+    ctu.datetime = _Fixed
+    try:
+        yield
+    finally:
+        ctu.datetime = old
 
 
 def build_prompt(
@@ -18,6 +44,7 @@ def build_prompt(
     use_chat_template: bool,
     template_kwargs: dict | None = None,
     assistant_prefix: str = "",
+    template_date: str | None = None,
 ) -> tuple[str, list[int]]:
     """Return (prompt_text, prompt_ids). With the chat template, the IDs come from the template
     directly, so special tokens such as BOS are not added twice. `assistant_prefix` is appended
@@ -28,8 +55,9 @@ def build_prompt(
             raise ValueError(f"{tok.name_or_path} has no chat template; set prompt.use_chat_template: false")
         msgs = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": user_text}]
         kw = dict(add_generation_prompt=True, **(template_kwargs or {}))
-        text = tok.apply_chat_template(msgs, tokenize=False, **kw)
-        ids = tok.apply_chat_template(msgs, tokenize=True, **kw)
+        with fixed_template_date(template_date):
+            text = tok.apply_chat_template(msgs, tokenize=False, **kw)
+            ids = tok.apply_chat_template(msgs, tokenize=True, **kw)
         if hasattr(ids, "keys"):  # transformers 5 returns a BatchEncoding
             ids = ids["input_ids"]
         ids = list(ids)

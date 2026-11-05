@@ -1,0 +1,54 @@
+# Full experiment (DECISIONS.md D59–D73). Runs on the SLURM cluster (4 × 80 GB GPUs per node).
+run_id: full_001
+seed: 0
+n: 1000
+output_dir: runs
+
+datasets:
+  - {name: triviaqa, loader: hf, path: mandarjoshi/trivia_qa, subset: rc.nocontext, split: validation,
+     revision: 0f7faf33a3908546c6fd5b73a660e0f8ff173c2f, id_field: question_id, question_field: question,
+     answer_field: answer.aliases, dedupe_ids: true}                                        # D44, D48
+  - {name: nq_open, loader: parquet,
+     path: "hf://datasets/google-research-datasets/nq_open@5dd9790a83002ad084ddeb7c420dc716852c6f28/nq_open/validation-00000-of-00001.parquet",
+     question_field: question, answer_field: answer, drop_empty_answers: true}               # D64
+  - {name: squad_v2, loader: parquet,
+     path: "hf://datasets/rajpurkar/squad_v2@3ffb306f725f7d2ce8394bc1873b24868140c412/squad_v2/validation-00000-of-00001.parquet",
+     id_field: id, question_field: question, answer_field: answers.text, drop_empty_answers: true}  # D45
+
+generators:
+  - {name: gemma-3-12b-it, hf_id: google/gemma-3-12b-it, dtype: bfloat16, batch_size: 32}
+  - {name: qwen3-14b, hf_id: Qwen/Qwen3-14B, dtype: bfloat16, batch_size: 32,
+     chat_template_kwargs: {enable_thinking: false}}                                         # D63
+
+judges:                                                                                      # D60
+  - {name: qwen3.8-27b, hf_id: Qwen/Qwen3.8-27B, dtype: bfloat16, quantization: bnb4, batch_size: 32,
+     chat_template_kwargs: {enable_thinking: false}}
+  - {name: gemma-4-31b-it, hf_id: google/gemma-4-31B-it, dtype: bfloat16, quantization: bnb4, batch_size: 32}
+    # thinking is off by default in the Gemma-4 template (empty "thought" channel)
+  - {name: gpt-oss-20b, hf_id: openai/gpt-oss-20b, dtype: bfloat16, quantization: none, batch_size: 32,  # native MXFP4
+     chat_template_kwargs: {reasoning_effort: low}, template_date: "2026-11-05",           # D61, D72
+     thinking: {enabled: true, max_tokens: 256, end_marker: "<|end|>",
+                after_marker: "<|start|>assistant<|channel|>final<|message|>",
+                close: "<|end|><|start|>assistant<|channel|>final<|message|>"}}
+
+prompt:
+  template: "Answer the following question with a short answer. Do not explain.\nQuestion: {question}"
+  system: null
+  use_chat_template: true
+
+decoding: {do_sample: false, max_new_tokens: 64}
+
+judging:
+  prompt_template_file: judge_prompt.txt
+  retries: 1
+  max_new_tokens: 16
+
+extraction: {batch_size: 8, shard_size: 500, matmul_precision: highest}
+
+cv: {outer_folds: 5, inner_folds: 3, repeats: 1, max_threshold_candidates: 200}
+
+detectors:
+  - {name: lapeigvals}
+  - {name: icr_probe}
+  - {name: charm}
+  - {name: saplma_reimpl}

@@ -14,7 +14,7 @@ IFS=$'\t' read -r A B C <<<"$LINE"
 echo "[$(date -Is)] $STAGE task $SLURM_ARRAY_TASK_ID on $(hostname): $LINE"
 nvidia-smi -L 2>/dev/null || true
 case "$STAGE" in
-  judge)    exec ./bin/hbench-judge -c "$CONFIG" --judge "$A" --generator "$B" --dataset "$C" ;;
+  judge)    exec uv run --frozen hbench judge -c "$CONFIG" --judge "$A" --generator "$B" --dataset "$C" ;;
   generate|extract|evaluate)
             exec uv run --frozen hbench "$STAGE" -c "$CONFIG" --generator "$A" --dataset "$B" ;;
   *) echo "unknown array stage $STAGE" >&2; exit 2 ;;

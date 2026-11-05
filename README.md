@@ -8,9 +8,7 @@ Design decisions: [DECISIONS.md](DECISIONS.md). Adding a published detector: `AD
 
 ```bash
 git submodule update --init          # third_party/lapeigvals @ 74f885c
-uv sync                              # main env (.venv): lapeigvals pins, torch 2.6 / transformers 4.47
-UV_PROJECT_ENVIRONMENT=.venv-judge uv sync --no-default-groups --group judge   # judge env (transformers 5.20, bitsandbytes)
-export HF_DATASETS_CACHE=~/.cache/hbench/datasets   # datasets 3.1 cannot read newer caches (D38)
+uv sync                              # one env: torch 2.9.1 / transformers 5.20.2 (D62)
 ```
 
 ## Run locally
@@ -18,7 +16,7 @@ export HF_DATASETS_CACHE=~/.cache/hbench/datasets   # datasets 3.1 cannot read n
 ```bash
 uv run hbench sample    -c configs/local_e2e.yaml
 uv run hbench generate  -c configs/local_e2e.yaml
-./bin/hbench-judge      -c configs/local_e2e.yaml      # judge stage, in the judge env
+uv run hbench judge     -c configs/local_e2e.yaml
 uv run hbench aggregate -c configs/local_e2e.yaml
 uv run hbench extract   -c configs/local_e2e.yaml
 uv run hbench evaluate  -c configs/local_e2e.yaml
@@ -42,6 +40,4 @@ Array jobs: one task per (generator × dataset) for generate / extract / evaluat
 
 ```bash
 uv run pytest -q                     # CPU, tiny model + mock judges, < 2 min
-UV_PROJECT_ENVIRONMENT=.venv-judge uv run --no-default-groups --group dev --group judge \
-  pytest -q tests/test_votes.py tests/test_thinking_judge.py "tests/test_stages.py::test_hf_judge_constrained_output"
 ```

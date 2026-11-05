@@ -52,7 +52,9 @@ def load_model(cfg: ModelCfg, attn_implementation: str | None = None) -> LoadedM
         kwargs["quantization_config"] = BitsAndBytesConfig(
             load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=torch.bfloat16
         )
-        kwargs["device_map"] = {"": device.index or 0} if device.type == "cuda" else None
+    if device.type == "cuda":
+        # Place on the GPU at load time (needed for quantized checkpoints, e.g. bnb4 and gpt-oss MXFP4).
+        kwargs["device_map"] = {"": device.index or 0}
     try:
         model = AutoModelForCausalLM.from_pretrained(cfg.hf_id, **kwargs)
     except ValueError:
@@ -61,7 +63,7 @@ def load_model(cfg: ModelCfg, attn_implementation: str | None = None) -> LoadedM
         from transformers import AutoModelForImageTextToText
 
         model = AutoModelForImageTextToText.from_pretrained(cfg.hf_id, **kwargs)
-    if cfg.quantization == "none":
+    if device.type != "cuda":
         model = model.to(device)
     model = model.eval()
     commit = getattr(model.config, "_commit_hash", None) or cfg.revision

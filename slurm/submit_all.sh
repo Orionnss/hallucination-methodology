@@ -11,9 +11,8 @@ cd "$(dirname "$0")/.."
 set -a; source slurm/cluster.env; set +a
 mkdir -p slurm/logs slurm/units
 
-# Build both environments once, on the login node, so array tasks never sync concurrently.
+# Build the environment once, on the login node, so array tasks never sync concurrently.
 uv sync --frozen
-UV_PROJECT_ENVIRONMENT=.venv-judge uv sync --frozen --no-default-groups --group judge
 
 RUN=$(uv run --frozen python -c "from hbench.config import load_config; print(load_config('$CONFIG').run_id)")
 common=(--parsable ${ACCOUNT:+--account=$ACCOUNT} ${QOS:+--qos=$QOS})
