@@ -11,6 +11,12 @@ def user_token_span(tokenizer, prompt_text: str, prompt_ids: list[int], user_tex
         raise ValueError("re-tokenised prompt text differs from the saved prompt IDs")
     c0 = prompt_text.rfind(user_text)
     if c0 < 0:
+        # Some chat templates trim the message (Gemma-3: `content | trim`), so a question with leading
+        # or trailing whitespace (SQuAD v2) appears trimmed; the span is then that of the text the
+        # model saw (D85).
+        user_text = user_text.strip()
+        c0 = prompt_text.rfind(user_text)
+    if c0 < 0:
         raise ValueError("user text not found in the prompt text")
     c1 = c0 + len(user_text)
     toks = [i for i, (a, b) in enumerate(enc["offset_mapping"]) if b > a and a < c1 and b > c0]

@@ -32,9 +32,15 @@ cp slurm/cluster.env.example slurm/cluster.env   # partitions, account, times, c
 slurm/submit_all.sh configs/<experiment>.yaml    # optional 2nd argument: first stage to submit
 ```
 
+MeluXina smoke test (project p201468; caches, venv and runs in project space):
+
+```bash
+CLUSTER_ENV=slurm/cluster.meluxina-smoke.env WITH_PARITY=1 slurm/submit_all.sh configs/slurm_smoke.yaml
+```
+
 Array jobs: one task per (generator × dataset) for generate / extract / evaluate, and per
-(judge × generator × dataset) for judge. Logs go to `slurm/logs/`. Each array task uses one GPU
-(`GPUS_PER_TASK`); models must fit on one 80 GB GPU.
+(judge × generator × dataset) for judge. Logs go to `slurm/logs/`. Each array task uses
+`GPUS_PER_TASK` GPUs; with more than one, the model is spread over all of them (D84).
 
 ## Tests
 

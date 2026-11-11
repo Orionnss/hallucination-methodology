@@ -1,9 +1,12 @@
 """Stage `extract` (prompt §2.5, ADDING_A_METHOD.md §5). Reads the stored answers; never generates.
 One teacher-forced HF forward pass per batch on (prompt + stored answer), with the union of the
-needs of all methods. Each method's reducer runs on the GPU directly after the pass; then the
-activations are deleted. Only feature shards and a manifest are written."""
+needs of all methods. The outputs are moved to `extraction.reduce_device` (RAM by default, D84) and
+each method's reducer runs on them directly after the pass; then the activations are deleted. Only
+feature shards and a manifest are written."""
 
 from __future__ import annotations
+
+import time
 
 import pandas as pd
 import torch
@@ -15,8 +18,8 @@ from hbench.io import PartTable
 from hbench.models import free_gpu, load_model
 from hbench.paths import RunPaths
 from hbench.pool.adapter import to_generate_output
-from hbench.pool.batching import build_pass_batch, to_device
-from hbench.pool.interfaces import Activations, Needs
+from hbench.pool.batching import build_pass_batch, forward_pass, reduce_device
+from hbench.pool.interfaces import Needs
 from hbench.pool.registry import get_detector
 from hbench.pool.spans import user_token_span
 from hbench.pool.storage import PoolStorage, ReducerStorage
@@ -82,7 +85,8 @@ def run(cfg: ExperimentCfg, generators: list[str] | None = None, datasets: list[
             for s in todo:
                 shard = gens.iloc[s * xcfg.shard_size : (s + 1) * xcfg.shard_size]
                 pool.start_shard(s)
-                _run_shard(lm, shard, pool, needs, xcfg.batch_size, f"extract {g.name}/{d.name} shard {s}")
+                _run_shard(lm, shard, pool, needs, xcfg.batch_size, reduce_device(xcfg.reduce_device, lm.device),
+                           f"extract {g.name}/{d.name} shard {s}")
                 pool.flush()
             write_manifest(
                 fdir / "manifest.json",
@@ -99,6 +103,8 @@ def run(cfg: ExperimentCfg, generators: list[str] | None = None, datasets: list[
                     "feature_dtype": xcfg.feature_dtype,
                     "attn_implementation": attn_impl or "default",
                     "matmul_precision": xcfg.matmul_precision,
+                    "reduce_device": xcfg.reduce_device,
+                    "n_gpus": len({str(p.device) for p in lm.model.parameters() if p.device.type == "cuda"}),
                 },
             )
             logger.info(f"extract: {g.name}/{d.name}: {len(todo)} shard(s) written")
@@ -106,8 +112,13 @@ def run(cfg: ExperimentCfg, generators: list[str] | None = None, datasets: list[
         free_gpu()
 
 
-def _run_shard(lm, shard: pd.DataFrame, pool: PoolStorage, needs: Needs, bs: int, desc: str) -> None:
+def _run_shard(lm, shard: pd.DataFrame, pool: PoolStorage, needs: Needs, bs: int, out_device: torch.device, desc: str) -> None:
     pad = lm.tokenizer.pad_token_id
+    cuda = torch.cuda.is_available()
+    if cuda:
+        for i in range(torch.cuda.device_count()):
+            torch.cuda.reset_peak_memory_stats(i)
+    t_pass = t_reduce = 0.0
     for start in tqdm(range(0, len(shard), bs), desc=desc, leave=False):
         rows = shard.iloc[start : start + bs]
         prompts = [list(x) for x in rows["prompt_ids"]]
@@ -125,21 +136,11 @@ def _run_shard(lm, shard: pd.DataFrame, pool: PoolStorage, needs: Needs, bs: int
             pad,
             spans,
         )
-        batch = to_device(batch, lm.device)
-        with torch.no_grad():
-            out = lm.model(
-                input_ids=batch.input_ids,
-                attention_mask=batch.attention_mask,
-                position_ids=batch.position_ids,
-                output_hidden_states=needs.hidden_states,
-                output_attentions=needs.attentions,
-                use_cache=False,
-            )
-        acts = Activations(
-            hidden_states=out.hidden_states if needs.hidden_states else None,
-            attentions=out.attentions if needs.attentions else None,
-            logits=out.logits if needs.logits else None,
-        )
+        t0 = time.perf_counter()
+        acts, batch = forward_pass(lm, batch, needs, out_device)
+        if cuda:
+            torch.cuda.synchronize()  # the pass timer must not run ahead of the GPU
+        t1 = time.perf_counter()
         gen_out = (
             to_generate_output(batch.input_ids, batch.prompt_width, acts.hidden_states, acts.attentions, acts.logits)
             if needs.generate_format
@@ -155,4 +156,11 @@ def _run_shard(lm, shard: pd.DataFrame, pool: PoolStorage, needs: Needs, bs: int
             batch=batch,
             tokenizer=lm.tokenizer,
         )
-        del out, acts, gen_out
+        del acts, gen_out
+        t_pass += t1 - t0
+        t_reduce += time.perf_counter() - t1
+    n_b = max(1, -(-len(shard) // bs))
+    peak = ", ".join(f"cuda:{i} {torch.cuda.max_memory_allocated(i) / 2**30:.1f}" for i in range(torch.cuda.device_count())) if cuda else "-"
+    # Pass time includes the move to the reduce device; reduce time is the detectors' reducers.
+    logger.info(f"{desc}: {n_b} batches, pass {t_pass / n_b:.2f} s/batch, reducers {t_reduce / n_b:.2f} s/batch "
+                f"on {out_device}; peak GPU memory (GiB) {peak}")

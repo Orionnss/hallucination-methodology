@@ -3,12 +3,14 @@
 #   sample → generate[] → judge[] → aggregate ─┐
 #                       └→ extract[] ──────────┴→ evaluate[] → report
 # Every stage resumes by key, so re-submitting after a failure only redoes the missing work.
-# Usage: slurm/submit_all.sh <config.yaml> [first-stage]      (WITH_PARITY=1 also submits the parity array)
+# Usage: slurm/submit_all.sh <config.yaml> [first-stage]      (WITH_PARITY=1 also submits the parity array;
+#        CLUSTER_ENV=<file> reads cluster settings from <file> instead of slurm/cluster.env)
 set -euo pipefail
 CONFIG=$1; FIRST=${2:-sample}
 cd "$(dirname "$0")/.."
-[ -f slurm/cluster.env ] || { echo "create slurm/cluster.env from slurm/cluster.env.example" >&2; exit 1; }
-set -a; source slurm/cluster.env; set +a
+export CLUSTER_ENV=${CLUSTER_ENV:-slurm/cluster.env}   # the sbatch scripts re-read the same file
+[ -f "$CLUSTER_ENV" ] || { echo "create $CLUSTER_ENV from slurm/cluster.env.example" >&2; exit 1; }
+set -a; source "$CLUSTER_ENV"; set +a
 mkdir -p slurm/logs slurm/units
 
 # Build the environment once, on the login node, so array tasks never sync concurrently.

@@ -1,8 +1,15 @@
-# Full experiment (DECISIONS.md D59–D73). Runs on the SLURM cluster (4 × 80 GB GPUs per node).
+# Full experiment (DECISIONS.md D59–D73) on MeluXina (project p201468): GPU nodes are exclusive, 4 × A100-40GB,
+# each array task takes a whole node with the model spread over its 4 GPUs (D84).
+#
+# Submit (cluster settings and walltime caps in slurm/cluster.meluxina-full.env):
+#   CLUSTER_ENV=slurm/cluster.meluxina-full.env slurm/submit_all.sh configs/full.yaml
+#
+# Cost estimate from slurm_smoke_001 scaled to n = 1000: ~13–15 GPU node-hours (generate ~1, judge ~6,
+# extract ~6); the walltime caps bound it at about 60. Parity is not rerun (done on slurm_smoke_001).
 run_id: full_001
 seed: 0
 n: 1000
-output_dir: runs
+output_dir: /project/home/p201468/u101970-halluc/hbench/runs   # HOME has ~5 GB free; features need ~26 GB
 
 datasets:
   - {name: triviaqa, loader: hf, path: mandarjoshi/trivia_qa, subset: rc.nocontext, split: validation,
@@ -43,7 +50,7 @@ judging:
   retries: 1
   max_new_tokens: 16
 
-extraction: {batch_size: 8, shard_size: 500, matmul_precision: highest}
+extraction: {batch_size: 8, shard_size: 500, matmul_precision: highest, reduce_device: model}   # reducers on the GPU (D86)
 
 cv: {outer_folds: 5, inner_folds: 3, repeats: 1, max_threshold_candidates: 200}
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import torch
 
-from hbench.pool.interfaces import PassBatch
+from hbench.pool.interfaces import Activations, Needs, PassBatch
 
 
 def build_pass_batch(
@@ -55,3 +55,31 @@ def to_device(b: PassBatch, device: torch.device) -> PassBatch:
     for f in ("input_ids", "attention_mask", "prompt_attention_mask", "position_ids", "answer_mask", "answer_len", "last_answer_pos"):
         setattr(b, f, getattr(b, f).to(device))
     return b
+
+
+def reduce_device(setting: str, model_device: torch.device) -> torch.device:
+    """`extraction.reduce_device` → a device (D84)."""
+    return torch.device("cpu") if setting == "cpu" else model_device
+
+
+def forward_pass(lm, b: PassBatch, needs: Needs, out_device: torch.device) -> tuple[Activations, PassBatch]:
+    """One teacher-forced forward pass. The outputs the detectors need, and the batch, are moved to
+    `out_device` (D84). With a model split over GPUs each layer's outputs sit on its own GPU; the move
+    gathers them, so reducers that stack layers see one device."""
+    b = to_device(b, lm.device)
+    with torch.no_grad():
+        out = lm.model(
+            input_ids=b.input_ids,
+            attention_mask=b.attention_mask,
+            position_ids=b.position_ids,
+            output_hidden_states=needs.hidden_states,
+            output_attentions=needs.attentions,
+            use_cache=False,
+        )
+    acts = Activations(
+        hidden_states=tuple(h.to(out_device) for h in out.hidden_states) if needs.hidden_states else None,
+        attentions=tuple(a.to(out_device) for a in out.attentions) if needs.attentions else None,
+        logits=out.logits.to(out_device) if needs.logits else None,
+    )
+    del out
+    return acts, to_device(b, out_device)

@@ -20,7 +20,8 @@ from hallucinations.llm.predict import predict_with_llm
 from hbench.models import LoadedModel
 from hbench.parity import ParityResult, compare
 from hbench.pool.adapter import to_generate_output
-from hbench.pool.batching import build_pass_batch, to_device
+from hbench.pool.batching import build_pass_batch, forward_pass
+from hbench.pool.interfaces import Needs
 from hbench.pool.methods.lapeigvals import LapEigvalsStorage
 
 
@@ -64,28 +65,29 @@ def run_original(lm: LoadedModel, prompts: list[list[int]], max_new_tokens: int,
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def run_ours(lm: LoadedModel, prompts: list[list[int]], answers: list[list[int]], batch_size: int) -> list[np.ndarray]:
+def run_ours(lm: LoadedModel, prompts: list[list[int]], answers: list[list[int]], batch_size: int, out_device: torch.device) -> list[np.ndarray]:
     st = LapEigvalsStorage(method_dir=None, feature_dtype="float32", tokenizer=lm.tokenizer)
     eos = lm.eos_ids
     for s in range(0, len(prompts), batch_size):
         p, a = prompts[s : s + batch_size], answers[s : s + batch_size]
         n = [len(x) - (1 if x and x[-1] in eos else 0) for x in a]
         keys = [str(i) for i in range(s, s + len(p))]
-        b = to_device(build_pass_batch(keys, keys, p, a, n, lm.tokenizer.pad_token_id), lm.device)
-        with torch.no_grad():
-            out = lm.model(input_ids=b.input_ids, attention_mask=b.attention_mask, position_ids=b.position_ids, output_attentions=True, use_cache=False)
-        gen = to_generate_output(b.input_ids, b.prompt_width, attentions=out.attentions)
+        acts, b = forward_pass(lm, build_pass_batch(keys, keys, p, a, n, lm.tokenizer.pad_token_id), Needs(attentions=True), out_device)
+        gen = to_generate_output(b.input_ids, b.prompt_width, attentions=acts.attentions)
         st.update(gen, b.prompt_attention_mask, None, None, b.prompt_width, batch=b)
-        del out, gen
+        del acts, gen
     diags, _, _ = st.collect()
     return [d.float().numpy() for d in diags]
 
 
-def parity(lm: LoadedModel, prompts: list[list[int]], stored_answers: list[list[int]] | None, max_new_tokens: int, batch_size: int, dtype: str) -> ParityResult:
+def parity(lm: LoadedModel, prompts: list[list[int]], stored_answers: list[list[int]] | None, max_new_tokens: int, batch_size: int, dtype: str,
+           out_device: torch.device = torch.device("cpu")) -> ParityResult:
     theirs, their_answers = run_original(lm, prompts, max_new_tokens, batch_size)
     keep = list(range(len(prompts)))
     if stored_answers is not None:  # samples whose original answer differs from the stored one are excluded and counted
         keep = [i for i in keep if their_answers[i] == list(stored_answers[i])]
-    ours = run_ours(lm, [prompts[i] for i in keep], [their_answers[i] for i in keep], batch_size)
-    # Our batches differ from theirs once samples are excluded: features are per example after padding removal.
-    return compare("lapeigvals", dtype, [theirs[i] for i in keep], ours, n_excluded=len(prompts) - len(keep))
+    # Ours runs on all samples, batched exactly as theirs, and the exclusions are applied after: their
+    # padding removal keeps a row's EOS unless the row is the longest of its batch (the last column
+    # is dropped), so a feature depends on its batch (D85).
+    ours = run_ours(lm, prompts, their_answers, batch_size, out_device)
+    return compare("lapeigvals", dtype, [theirs[i] for i in keep], [ours[i] for i in keep], n_excluded=len(prompts) - len(keep))

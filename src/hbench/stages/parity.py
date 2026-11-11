@@ -16,6 +16,7 @@ from hbench.generation import build_prompt
 from hbench.io import PartTable
 from hbench.models import free_gpu, load_model
 from hbench.paths import RunPaths
+from hbench.pool.batching import reduce_device
 from hbench.pool.spans import user_token_span
 from hbench.stages.generate import decoding_hash, prompt_hash
 
@@ -46,20 +47,21 @@ def run(cfg: ExperimentCfg, method: str, generator: str, dtype: str, n_parity: i
         if any(a is None for a in stored):
             stored = None
     mnt = cfg.decoding.max_new_tokens
+    out_dev = reduce_device(cfg.extraction.reduce_device, lm.device)  # our side, as in extract (D84)
     if method == "lapeigvals":
         from hbench.parity.lapeigvals import parity
 
-        r = parity(lm, prompts, stored, mnt, batch_size, dtype)
+        r = parity(lm, prompts, stored, mnt, batch_size, dtype, out_dev)
     elif method == "icr_probe":
         from hbench.parity.icr import parity
 
         spans = [user_token_span(lm.tokenizer, t, ids, cfg.prompt.template.format(question=q)) for (t, ids), q in zip(built, samples["question"])]
-        r = parity(lm, prompts, spans, stored, mnt, batch_size, dtype)
+        r = parity(lm, prompts, spans, stored, mnt, batch_size, dtype, out_dev)
     else:
         from hbench.parity.charm import parity
 
-        r = parity(lm, prompts, stored, mnt, batch_size, dtype)
-    out = r.as_dict() | {"generator": g.name, "hf_id": g.hf_id, "commit": lm.commit, "dataset": d.name, "date": date.today().isoformat(),
+        r = parity(lm, prompts, stored, mnt, batch_size, dtype, out_dev)
+    out = r.as_dict() | {"reduce_device": cfg.extraction.reduce_device,"generator": g.name, "hf_id": g.hf_id, "commit": lm.commit, "dataset": d.name, "date": date.today().isoformat(),
                           "matmul_precision": cfg.extraction.matmul_precision, "stored_answers_checked": stored is not None}
     p = paths.root / "parity" / f"{method}__{g.name}__{dtype}.json"
     p.parent.mkdir(parents=True, exist_ok=True)

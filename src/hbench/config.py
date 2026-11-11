@@ -98,6 +98,10 @@ class ExtractionCfg(_Strict):
     matmul_precision: Literal["highest", "high", "medium"] = "highest"  # DECISIONS.md D29
     feature_dtype: Literal["float32"] = "float32"  # DECISIONS.md D32
     device: str = "auto"
+    # Where the detectors' reducers run on the pass outputs (D84): "cpu" moves hidden states and
+    # attentions to RAM right after the forward pass (no GPU OOM, works with a model split over GPUs);
+    # "model" gathers them on the model's input device.
+    reduce_device: Literal["cpu", "model"] = "cpu"
 
 
 class DetectorCfg(_Strict):

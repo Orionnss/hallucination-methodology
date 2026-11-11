@@ -1,0 +1,66 @@
+# Smoke test of the full experiment on MeluXina (project p201468), before full.yaml.
+# Same generators, judges, datasets and detectors as full.yaml; only n, the CV and the shard size
+# are smaller. It checks what the local GPU cannot check: real model sizes on 40 GB A100s,
+# bnb4 / MXFP4 loading, downloads from compute nodes (D58), and the SLURM dependency chain.
+#
+# Submit (cluster settings and walltime caps in slurm/cluster.meluxina-smoke.env):
+#   CLUSTER_ENV=slurm/cluster.meluxina-smoke.env WITH_PARITY=1 slurm/submit_all.sh configs/slurm_smoke.yaml
+#
+# Cost: GPU nodes are exclusive (4 × A100-40GB); each array task takes a whole node, with the model
+# spread over its 4 GPUs (D84), and bills one node-hour per hour. Units: generate 6, judge 18, extract 6, parity 12 (GPU);
+# evaluate 6 (CPU). Expect about 5–10 GPU node-hours; the walltime caps bound it at about 38.
+# Check what is left with `myquota`.
+run_id: slurm_smoke_001
+seed: 0
+n: 120           # 3 outer × 2 inner folds still have positives at ~20 % correct (SQuAD v2 closed-book)
+output_dir: /project/home/p201468/u101970-halluc/hbench/runs   # HOME has ~6 GB free
+
+datasets:
+  - {name: triviaqa, loader: hf, path: mandarjoshi/trivia_qa, subset: rc.nocontext, split: validation,
+     revision: 0f7faf33a3908546c6fd5b73a660e0f8ff173c2f, id_field: question_id, question_field: question,
+     answer_field: answer.aliases, dedupe_ids: true}                                        # D44, D48
+  - {name: nq_open, loader: parquet,
+     path: "hf://datasets/google-research-datasets/nq_open@5dd9790a83002ad084ddeb7c420dc716852c6f28/nq_open/validation-00000-of-00001.parquet",
+     question_field: question, answer_field: answer, drop_empty_answers: true}               # D64
+  - {name: squad_v2, loader: parquet,
+     path: "hf://datasets/rajpurkar/squad_v2@3ffb306f725f7d2ce8394bc1873b24868140c412/squad_v2/validation-00000-of-00001.parquet",
+     id_field: id, question_field: question, answer_field: answers.text, drop_empty_answers: true}  # D45
+
+generators:
+  - {name: gemma-3-12b-it, hf_id: google/gemma-3-12b-it, dtype: bfloat16, batch_size: 32}
+  - {name: qwen3-14b, hf_id: Qwen/Qwen3-14B, dtype: bfloat16, batch_size: 32,
+     chat_template_kwargs: {enable_thinking: false}}                                         # D63
+
+judges:                                                                                      # D60
+  - {name: qwen3.8-27b, hf_id: Qwen/Qwen3.8-27B, dtype: bfloat16, quantization: bnb4, batch_size: 32,
+     chat_template_kwargs: {enable_thinking: false}}
+  - {name: gemma-4-31b-it, hf_id: google/gemma-4-31B-it, dtype: bfloat16, quantization: bnb4, batch_size: 32}
+  # Watch this one: without MXFP4 kernels for Ampere, transformers dequantizes to bf16 (~42 GB),
+  # which does not fit a 40 GB A100.
+  - {name: gpt-oss-20b, hf_id: openai/gpt-oss-20b, dtype: bfloat16, quantization: none, batch_size: 32,  # native MXFP4
+     chat_template_kwargs: {reasoning_effort: low}, template_date: "2026-11-05",           # D61, D72
+     thinking: {enabled: true, max_tokens: 256, end_marker: "<|end|>",
+                after_marker: "<|start|>assistant<|channel|>final<|message|>",
+                close: "<|end|><|start|>assistant<|channel|>final<|message|>"}}
+
+prompt:
+  template: "Answer the following question with a short answer. Do not explain.\nQuestion: {question}"
+  system: null
+  use_chat_template: true
+
+decoding: {do_sample: false, max_new_tokens: 64}
+
+judging:
+  prompt_template_file: judge_prompt.txt
+  retries: 1
+  max_new_tokens: 16
+
+extraction: {batch_size: 8, shard_size: 60, matmul_precision: highest, reduce_device: model}   # 2 shards → exercises resume by shard; reducers on the GPU (D86)
+
+cv: {outer_folds: 3, inner_folds: 2, repeats: 1, max_threshold_candidates: 50}
+
+detectors:
+  - {name: lapeigvals}
+  - {name: icr_probe}
+  - {name: charm}
+  - {name: saplma_reimpl}

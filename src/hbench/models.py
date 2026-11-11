@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 import torch
 import transformers
+from loguru import logger
 from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedModel, PreTrainedTokenizerBase
 
 from hbench.config import ModelCfg
@@ -53,8 +54,10 @@ def load_model(cfg: ModelCfg, attn_implementation: str | None = None) -> LoadedM
             load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=torch.bfloat16
         )
     if device.type == "cuda":
-        # Place on the GPU at load time (needed for quantized checkpoints, e.g. bnb4 and gpt-oss MXFP4).
-        kwargs["device_map"] = {"": device.index or 0}
+        # Place on the GPU(s) at load time (needed for quantized checkpoints, e.g. bnb4 and gpt-oss MXFP4).
+        # device "auto" with several visible GPUs: the layers are spread over all of them (D84).
+        multi = cfg.device == "auto" and torch.cuda.device_count() > 1
+        kwargs["device_map"] = "auto" if multi else {"": device.index or 0}
     try:
         model = AutoModelForCausalLM.from_pretrained(cfg.hf_id, **kwargs)
     except ValueError:
@@ -65,6 +68,12 @@ def load_model(cfg: ModelCfg, attn_implementation: str | None = None) -> LoadedM
         model = AutoModelForImageTextToText.from_pretrained(cfg.hf_id, **kwargs)
     if device.type != "cuda":
         model = model.to(device)
+    else:
+        # Inputs go where the embedding is (cuda:0 under device_map="auto").
+        device = model.get_input_embeddings().weight.device
+        placed = sorted({str(d) for d in (getattr(model, "hf_device_map", None) or {}).values()})
+        if len(placed) > 1:
+            logger.info(f"{cfg.name}: layers spread over {', '.join(placed)}")
     model = model.eval()
     commit = getattr(model.config, "_commit_hash", None) or _snapshot_commit(cfg.hf_id, cfg.revision) or cfg.revision
     return LoadedModel(model=model, tokenizer=tok, commit=commit, device=device)

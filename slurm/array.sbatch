@@ -9,7 +9,8 @@
 set -euo pipefail
 STAGE=$1; CONFIG=$2; UNITS=$3
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")/..}"
-[ -f slurm/cluster.env ] && set -a && source slurm/cluster.env && set +a
+ENV_FILE=${CLUSTER_ENV:-slurm/cluster.env}
+[ -f "$ENV_FILE" ] && set -a && source "$ENV_FILE" && set +a
 LINE=$(sed -n "$((SLURM_ARRAY_TASK_ID + 1))p" "$UNITS")
 IFS=$'\t' read -r A B C <<<"$LINE"
 echo "[$(date -Is)] $STAGE task $SLURM_ARRAY_TASK_ID on $(hostname): $LINE"

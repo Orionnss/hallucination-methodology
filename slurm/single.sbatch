@@ -6,6 +6,7 @@
 set -euo pipefail
 STAGE=$1; CONFIG=$2
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")/..}"
-[ -f slurm/cluster.env ] && set -a && source slurm/cluster.env && set +a
+ENV_FILE=${CLUSTER_ENV:-slurm/cluster.env}
+[ -f "$ENV_FILE" ] && set -a && source "$ENV_FILE" && set +a
 echo "[$(date -Is)] $STAGE on $(hostname)"
 exec uv run --frozen hbench "$STAGE" -c "$CONFIG"

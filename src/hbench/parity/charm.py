@@ -13,8 +13,8 @@ import torch
 
 from hbench.models import LoadedModel
 from hbench.parity import ParityResult, compare
-from hbench.pool.batching import build_pass_batch, to_device
-from hbench.pool.interfaces import Activations
+from hbench.pool.batching import build_pass_batch, forward_pass
+from hbench.pool.interfaces import Needs
 from hbench.pool.methods.charm import _charm, act_layer, charm_item
 
 FIELDS = ("x", "edge_attr", "act")
@@ -44,26 +44,22 @@ def run_original(lm: LoadedModel, prompts: list[list[int]], max_new_tokens: int)
     return items, answers
 
 
-def run_ours(lm: LoadedModel, prompts, answers, batch_size: int) -> list[dict]:
+def run_ours(lm: LoadedModel, prompts, answers, batch_size: int, out_device: torch.device) -> list[dict]:
     eos = lm.eos_ids
     items = []
     for s in range(0, len(prompts), batch_size):
         p, a = prompts[s : s + batch_size], answers[s : s + batch_size]
         n = [len(x) - (1 if x and x[-1] in eos else 0) for x in a]
         keys = [str(i) for i in range(s, s + len(p))]
-        b = to_device(build_pass_batch(keys, keys, p, a, n, lm.tokenizer.pad_token_id), lm.device)
-        with torch.no_grad():
-            out = lm.model(input_ids=b.input_ids, attention_mask=b.attention_mask, position_ids=b.position_ids,
-                           output_hidden_states=True, output_attentions=True, use_cache=False)
-        acts = Activations(hidden_states=out.hidden_states, attentions=out.attentions)
+        acts, b = forward_pass(lm, build_pass_batch(keys, keys, p, a, n, lm.tokenizer.pad_token_id), Needs(hidden_states=True, attentions=True), out_device)
         items += [charm_item(acts, b, i) for i in range(len(p))]
     return items
 
 
-def parity(lm: LoadedModel, prompts, stored_answers, max_new_tokens: int, batch_size: int, dtype: str) -> ParityResult:
+def parity(lm: LoadedModel, prompts, stored_answers, max_new_tokens: int, batch_size: int, dtype: str, out_device: torch.device = torch.device("cpu")) -> ParityResult:
     theirs, their_answers = run_original(lm, prompts, max_new_tokens)
     keep = [i for i in range(len(prompts)) if stored_answers is None or their_answers[i] == list(stored_answers[i])]
-    ours = run_ours(lm, [prompts[i] for i in keep], [their_answers[i] for i in keep], batch_size)
+    ours = run_ours(lm, [prompts[i] for i in keep], [their_answers[i] for i in keep], batch_size, out_device)
     theirs = [theirs[i] for i in keep]
     n_flipped, t_cmp, o_cmp = 0, [], []
     for t, o in zip(theirs, ours):
