@@ -1,0 +1,45 @@
+# Small end-to-end smoke test on one local GPU (16 GB): every stage, every detector, real models.
+# Only models already in the local HF cache. Judges are loaded one at a time; the largest
+# (gemma-3-4b-it, bf16) needs about 9 GB. Expect a few minutes per stage.
+run_id: gpu_smoke_001
+seed: 0
+n: 120           # enough for 3 outer × 2 inner folds even with ~20 % correct answers
+output_dir: runs
+
+datasets:
+  - {name: triviaqa, loader: hf, path: mandarjoshi/trivia_qa, subset: rc.nocontext, split: validation,
+     revision: 0f7faf33a3908546c6fd5b73a660e0f8ff173c2f, id_field: question_id, question_field: question,
+     answer_field: answer.aliases, dedupe_ids: true}                                        # D44, D48
+
+generators:
+  - {name: qwen2.5-0.5b-instruct, hf_id: Qwen/Qwen2.5-0.5B-Instruct, dtype: bfloat16, batch_size: 32}
+
+judges:  # three families, none shares an hf_id with the generator
+  - {name: gemma-3-4b-it, hf_id: google/gemma-3-4b-it, dtype: bfloat16, batch_size: 16}
+  - {name: llama-3.2-3b-instruct, hf_id: meta-llama/Llama-3.2-3B-Instruct, dtype: bfloat16, batch_size: 16}
+  - {name: qwen3-4b, hf_id: Qwen/Qwen3-4B, dtype: bfloat16, batch_size: 16,
+     chat_template_kwargs: {enable_thinking: false}}   # Qwen3-1.7B voted CORRECT on every answer
+
+prompt:
+  template: "Answer the following question with a short answer. Do not explain.\nQuestion: {question}"
+  system: null
+  use_chat_template: true
+
+decoding: {do_sample: false, max_new_tokens: 32}
+
+judging:
+  prompt_template_file: judge_prompt.txt
+  retries: 1
+  max_new_tokens: 16
+
+extraction: {batch_size: 8, shard_size: 60, matmul_precision: highest}   # 2 shards → exercises resume by shard
+
+cv: {outer_folds: 3, inner_folds: 2, repeats: 1, max_threshold_candidates: 50}
+
+detectors:
+  - {name: mean_hidden_probe}
+  - {name: saplma_style_probe}
+  - {name: saplma_reimpl}
+  - {name: lapeigvals}
+  - {name: icr_probe}
+  - {name: charm}
