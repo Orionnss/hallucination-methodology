@@ -73,6 +73,26 @@ class OuterResult:
     flags: list[str]
 
 
+def _n_workers(n_jobs: int, n_configs: int) -> int:
+    import os
+
+    cpus = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1)
+    return max(1, min(n_configs, cpus if n_jobs < 0 else n_jobs))
+
+
+def _inner_cv(make_clf, params, Xtr, ytr, inner_splits, single_thread: bool = False):
+    """Inner CV of one grid point: mean inner AUROC and the inner out-of-fold scores."""
+    if single_thread:  # worker process: one thread each, the parallelism is across grid points
+        import torch
+
+        torch.set_num_threads(1)
+    inner = []
+    for tr, va in inner_splits:
+        clf = make_clf(**params).fit(Xtr[tr], ytr[tr])
+        inner.append((ytr[va], clf.predict_proba(Xtr[va])))
+    return float(np.mean([roc_auc_score(yv, s) for yv, s in inner])), inner
+
+
 def run_outer_fold(
     X: np.ndarray,
     y: np.ndarray,
@@ -84,6 +104,7 @@ def run_outer_fold(
     seed: int,
     max_tau: int,
     where: str,
+    n_jobs: int = 1,
 ) -> OuterResult:
     Xtr, ytr = X[train_idx], y[train_idx]
     check_class_counts(ytr, inner_folds, f"{where} (inner)")
@@ -92,13 +113,17 @@ def run_outer_fold(
     for k, (_, va) in enumerate(inner_splits):
         if len(np.unique(ytr[va])) < 2:
             raise FoldError(f"{where}: inner fold {k} has one class only")
+    configs = list(ParameterGrid(grid))
+    if n_jobs == 1 or len(configs) == 1:
+        results = [_inner_cv(make_clf, p, Xtr, ytr, inner_splits) for p in configs]
+    else:
+        from joblib import Parallel, delayed
+
+        results = Parallel(n_jobs=_n_workers(n_jobs, len(configs)), backend="loky")(
+            delayed(_inner_cv)(make_clf, p, Xtr, ytr, inner_splits, single_thread=True) for p in configs
+        )
     best = None
-    for params in ParameterGrid(grid):
-        inner = []
-        for tr, va in inner_splits:
-            clf = make_clf(**params).fit(Xtr[tr], ytr[tr])
-            inner.append((ytr[va], clf.predict_proba(Xtr[va])))
-        auroc = float(np.mean([roc_auc_score(yv, s) for yv, s in inner]))
+    for params, (auroc, inner) in zip(configs, results):  # grid order, as in the sequential loop
         if best is None or auroc > best[1]:  # ties → first in grid order
             best = (params, auroc, inner)
     params, auroc, inner = best

@@ -70,3 +70,21 @@ def test_no_leakage_of_outer_test_fold():
         # The only call that sees V_f is the final prediction, and it sees only V_f.
         assert final == ("predict", test_ids)
         assert sum(1 for k, _ in Spy.log if k == "fit") == 4 * 3 + 1
+
+
+def test_parallel_grid_search_matches_sequential():
+    from functools import partial
+
+    from hbench.pool.methods.reference import LayerLogReg
+
+    rng = np.random.default_rng(0)
+    y = np.array([0, 1] * 30)
+    X = rng.normal(size=(60, 3, 5))
+    X[y == 1, 1] += 0.8
+    tr, te = np.arange(40), np.arange(40, 60)
+    make = partial(LayerLogReg, seed=0)
+    grid = {"layer": [0, 1, 2], "C": [0.1, 1.0]}
+    a = run_outer_fold(X, y, tr, te, make, grid, 3, 0, 200, "t", n_jobs=1)
+    b = run_outer_fold(X, y, tr, te, make, grid, 3, 0, 200, "t", n_jobs=2)
+    assert a.params == b.params and a.tau == b.tau
+    np.testing.assert_array_equal(a.scores, b.scores)

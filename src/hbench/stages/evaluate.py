@@ -95,7 +95,7 @@ def run(
                         set_all_seeds(cfg.seed)
                         tr, te = np.where(fb != f)[0], np.where(fb == f)[0]
                         where = f"{det.name} on {g.name}/{d.name} repeat {b} fold {f}"
-                        r = run_outer_fold(X, y, tr, te, make_clf, grid, cfg.cv.inner_folds, cfg.seed + 1000 * b + f, cfg.cv.max_threshold_candidates, where)
+                        r = run_outer_fold(X, y, tr, te, make_clf, grid, cfg.cv.inner_folds, cfg.seed + 1000 * b + f, cfg.cv.max_threshold_candidates, where, n_jobs=cfg.cv.n_jobs)
                         mrows.append(
                             {
                                 "detector": det.name,

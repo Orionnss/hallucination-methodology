@@ -89,6 +89,9 @@ class CVCfg(_Strict):
     inner_folds: int = 3
     repeats: int = 1
     max_threshold_candidates: int = 200
+    # Processes for the inner-CV grid search (one thread each); results do not depend on it. 1 = in
+    # process; -1 = one per CPU of the job. Not part of any key (D89).
+    n_jobs: int = 1
 
 
 class ExtractionCfg(_Strict):

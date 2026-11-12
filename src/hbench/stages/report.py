@@ -205,6 +205,50 @@ def wilcoxons(m: pd.DataFrame, detectors: list[str]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+# ---------- feature × classifier grid (D89) ----------
+
+
+def cross_section(m: pd.DataFrame, cells: list[tuple[str, str]], tables: Path) -> list[str]:
+    """The 3 × 3 grid of vector features × vector classifiers: the diagonal is the published
+    detectors, the rest the combinations of group "cross". Descriptive only: no significance tests.
+    Returns the Markdown lines of the section ([] when no combination was evaluated)."""
+    from hbench.pool.combos import HEADS, axes
+
+    rows = [(det, *axes(det)) for det in m["detector"].unique() if axes(det) is not None]
+    if not any("+" in det for det, _, _ in rows):
+        return []
+    feats = [v for v in ("lapeigvals_feat", "icr_feat", "hidden_feat") if any(r[1] == v for r in rows)]
+    heads = [h for h in HEADS if any(r[2] == h for r in rows)]
+    name = {(v, h): det for det, v, h in rows}
+    lines = ["## Feature × classifier grid", "",
+             "Each row = one stored feature (with its own selection: k and layer for lapeigvals, layer for the hidden state) "
+             "fed to one published classifier. Diagonal (†) = the published detector. Mean ± std over the outer folds; "
+             "best mean per column in bold. Descriptive only: no significance tests (D89).", ""]
+    for metric in TEST_METRICS:
+        order = [name[(v, h)] for v in feats for h in heads if (v, h) in name]
+        tidy = metric_table(m[m["detector"].isin(order)], metric, order, cells)
+        tidy.insert(1, "feature", [axes(d)[0] for d in tidy["detector"]])
+        tidy.insert(2, "classifier", [axes(d)[1] for d in tidy["detector"]])
+        tidy.to_csv(tables / f"cross_{metric}.csv", index=False)
+        wide = wide_strings(tidy, order, cells, "**{}**")
+        wide.index = [f"{axes(d)[0]} × {axes(d)[1]}" + (" †" if "+" not in d else "") for d in wide.index]
+        wide_tex = wide_strings(tidy, order, cells, r"\textbf{{{}}}")
+        wide_tex.index = wide.index
+        (tables / f"cross_{metric}.tex").write_text(
+            to_latex_booktabs(wide_tex, f"{METRIC_NAMES[metric]}, feature × classifier grid († = published detector)", f"tab:cross_{metric}"))
+        # Matrix of the mean over cells (equal weight per cell).
+        cm = tidy.groupby(["feature", "classifier"])["mean"].mean().unstack("classifier").reindex(index=feats, columns=heads)
+        cm.to_csv(tables / f"cross_{metric}_matrix.csv")
+        mat = ["| feature / classifier | " + " | ".join(heads) + " |", "|---|" + "---|" * len(heads)]
+        for v in feats:
+            mat.append(f"| {v} | " + " | ".join(
+                ("—" if pd.isna(cm.loc[v, h]) else f"{cm.loc[v, h]:.3f}" + (" †" if (v, h) in name and "+" not in name[(v, h)] else ""))
+                for h in heads) + " |")
+        lines += [f"### {METRIC_NAMES[metric]}", "", to_markdown(wide), "",
+                  f"Mean over the {len(cells)} cells:", "", *mat, ""]
+    return lines
+
+
 # ---------- other tables ----------
 
 
@@ -266,9 +310,12 @@ def run(cfg: ExperimentCfg) -> Path:
     tables = out / "tables"
     tables.mkdir(parents=True, exist_ok=True)
     groups = detector_groups(cfg)
-    detectors = order_by_group([d.name for d in cfg.detectors], groups)
+    # Main tables and tests: the published, reimplemented and reference detectors. The feature ×
+    # classifier combinations (group "cross", D89) get their own section.
+    detectors = order_by_group([d.name for d in cfg.detectors if groups[d.name] != "cross"], groups)
     cells = cell_columns(cfg)
-    m = load_metrics(cfg, paths)
+    m_all = load_metrics(cfg, paths)
+    m = m_all[m_all["detector"].isin(detectors)]
 
     md_tables = {}
     for metric in METRICS:
@@ -281,6 +328,7 @@ def run(cfg: ExperimentCfg) -> Path:
         md_tables[metric] = to_markdown(wide_strings(tidy, detectors, cells, "**{}**"), groups)
 
     pooled = pooled_auroc(cfg, paths)
+    pooled = pooled[pooled["detector"].isin(detectors)].reset_index(drop=True)
     pooled.to_csv(tables / "pooled_auroc.csv", index=False)
     pw = pooled.pivot_table(index="detector", columns=["generator", "dataset"], values="pooled_auroc").reindex(index=detectors, columns=cells)
     pw_s = pw.map(lambda v: f"{v:.3f}")
@@ -304,10 +352,11 @@ def run(cfg: ExperimentCfg) -> Path:
     wx.to_csv(tables / "significance_wilcoxon.csv", index=False)
     js = judge_stats(cfg, paths)
     js.to_csv(tables / "judges.csv", index=False)
-    fl = flag_counts(m)
+    fl = flag_counts(m_all)
     fl.to_csv(tables / "metric_flags.csv", index=False)
+    cross_md = cross_section(m_all, cells, tables)
 
-    (out / "summary.md").write_text(_summary(cfg, paths, m, md_tables, pooled, lab, tt, wx, js, fl))
+    (out / "summary.md").write_text(_summary(cfg, paths, m_all, md_tables, pooled, lab, tt, wx, js, fl, detectors, cross_md))
     logger.info(f"report: written to {out}")
     return out
 
@@ -333,7 +382,7 @@ def _md_df(df: pd.DataFrame, floatfmt: str = "{:.3f}") -> str:
     return "\n".join(["| " + " | ".join(cols) + " |", "|" + "---|" * len(cols)] + ["| " + " | ".join(f(v) for v in r) + " |" for r in df.itertuples(index=False)])
 
 
-def _summary(cfg, paths, m, md_tables, pooled, lab, tt, wx, js, fl) -> str:
+def _summary(cfg, paths, m, md_tables, pooled, lab, tt, wx, js, fl, detectors, cross_md) -> str:
     prov = sorted((paths.root / "provenance").glob("evaluate-*.json"))
     git = json.loads(prov[-1].read_text())["git"] if prov else {}
     meta = {p.name.removesuffix(".meta.json"): json.loads(p.read_text()) for p in sorted((paths.root / "samples").glob("*.meta.json"))}
@@ -344,7 +393,7 @@ def _summary(cfg, paths, m, md_tables, pooled, lab, tt, wx, js, fl) -> str:
         f"- Generators: {', '.join(g.name for g in cfg.generators)}",
         f"- Datasets: {', '.join(d.name for d in cfg.datasets)} (n = {cfg.n} each, seed {cfg.seed})",
         f"- Judges (R = {len(cfg.judges)}): {', '.join(j.name for j in cfg.judges)}",
-        f"- Detectors: {', '.join(d.name for d in cfg.detectors)}",
+        f"- Detectors: {', '.join(detectors)}",
         f"- CV: {cfg.cv.outer_folds} outer × {cfg.cv.inner_folds} inner folds, {cfg.cv.repeats} repeat(s) → k = {k} paired folds per cell",
         f"- Git commit: `{git.get('commit', '?')}`{' (dirty)' if git.get('dirty') else ''}",
         "",
@@ -384,6 +433,7 @@ def _summary(cfg, paths, m, md_tables, pooled, lab, tt, wx, js, fl) -> str:
         "",
         _md_df(wx[["metric", "detector_a", "detector_b", "n_cells", "mean_diff", "p", "min_attainable_p", "p_holm", "significant"]] if not wx.empty else wx),
         "",
+        *cross_md,
         "## Undefined-metric flags",
         "",
         f"Total: {int(fl['n_flags'].sum())}.",

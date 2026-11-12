@@ -18,7 +18,7 @@ class DetectorSpec:
     classifier: Callable[..., Any]
     default_grid: dict[str, Any] = field(default_factory=dict)
     adjust_grid: Callable[[dict, np.ndarray], dict] | None = None  # label-free grid adjustment from the features
-    group: str = "published"  # report group: published | reimplemented | reference
+    group: str = "published"  # report group: published | reimplemented | reference | cross (D89)
 
 
 REGISTRY: dict[str, DetectorSpec] = {
@@ -48,6 +48,15 @@ def _register_published() -> None:
 
 
 _register_published()
+
+
+def _register_combos() -> None:
+    from hbench.pool import combos
+
+    combos.register(REGISTRY, DetectorSpec)
+
+
+_register_combos()
 
 
 def get_detector(name: str) -> DetectorSpec:

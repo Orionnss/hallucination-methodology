@@ -30,9 +30,9 @@ generators:
 judges:                                                                                      # D60
   - {name: qwen3.8-27b, hf_id: Qwen/Qwen3.8-27B, dtype: bfloat16, quantization: bnb4, batch_size: 32,
      chat_template_kwargs: {enable_thinking: false}}
-  - {name: gemma-4-31b-it, hf_id: google/gemma-4-31B-it, dtype: bfloat16, quantization: bnb4, batch_size: 32}
+  - {name: gemma-4-31b-it, hf_id: google/gemma-4-31B-it, dtype: bfloat16, quantization: bnb4, batch_size: 16}  # 32 ran out of memory on TriviaQA (full_001)
     # thinking is off by default in the Gemma-4 template (empty "thought" channel)
-  - {name: gpt-oss-20b, hf_id: openai/gpt-oss-20b, dtype: bfloat16, quantization: none, batch_size: 32,  # native MXFP4
+  - {name: gpt-oss-20b, hf_id: openai/gpt-oss-20b, dtype: bfloat16, quantization: none, batch_size: 16,  # native MXFP4; 32 ran out of memory on TriviaQA (full_001)
      chat_template_kwargs: {reasoning_effort: low}, template_date: "2026-11-05",           # D61, D72
      thinking: {enabled: true, max_tokens: 256, end_marker: "<|end|>",
                 after_marker: "<|start|>assistant<|channel|>final<|message|>",
@@ -52,10 +52,18 @@ judging:
 
 extraction: {batch_size: 8, shard_size: 500, matmul_precision: highest, reduce_device: model}   # reducers on the GPU (D86)
 
-cv: {outer_folds: 5, inner_folds: 3, repeats: 1, max_threshold_candidates: 200}
+cv: {outer_folds: 5, inner_folds: 3, repeats: 1, max_threshold_candidates: 200,
+     n_jobs: 128}   # grid search in parallel, one process per physical core of a CPU node (D89)
 
 detectors:
   - {name: lapeigvals}
   - {name: icr_probe}
   - {name: charm}
   - {name: saplma_reimpl}
+  # Feature × classifier grid (D89): the off-diagonal combinations; the diagonal is the three above.
+  - {name: lapeigvals_feat+icr_mlp}
+  - {name: lapeigvals_feat+saplma_mlp}
+  - {name: icr_feat+pca_lr}
+  - {name: icr_feat+saplma_mlp}
+  - {name: hidden_feat+pca_lr}
+  - {name: hidden_feat+icr_mlp}
